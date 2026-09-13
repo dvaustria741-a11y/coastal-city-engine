@@ -54,9 +54,9 @@ export function terrainHeight(x: number, z: number): number {
   // Ocean (-3.5) → beach (0) → land (2.5) smooth ramp
   let h = lp(-3.5, 2.5, ss(-35, 18, e));
 
-  // Gentle beach dunes just inland from shore
-  if (e > 0 && e < 22) {
-    h += Math.max(0, Math.sin(x * .048 + z * .031)) * 1.1 * ss(0, 18, e) * ss(22, 4, e);
+  // Gentle beach dunes — only in the true beach zone, well below flat-land level
+  if (e > 0 && e < 14) {
+    h += Math.max(0, Math.sin(x * .048 + z * .031)) * 0.9 * ss(0, 14, e) * ss(14, 2, e);
   }
 
   // Residential hills — only far west of city, never near roads
@@ -74,6 +74,10 @@ export function terrainHeight(x: number, z: number): number {
 export function groundHeight(x: number, z: number): number {
   if (onBridge(x, z)) return 3.4;
   if (onDock(x, z)) return 2.5;
+  // Hard ocean cutoff: beyond the nominal coastline the wave SDF can still
+  // return positive heights, but gameplay must treat it as open water.
+  // Island exemption: the island SDF lives east of the main coast.
+  if (x > coast(z) + 1.5 && !island(x, z)) return -2;
   const h = terrainHeight(x, z);
   return h < 0.12 ? -2 : Math.max(0.12, h);
 }
