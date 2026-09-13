@@ -29,19 +29,19 @@ export class Environment {
     const rg=new T.BufferGeometry();rg.setAttribute('position',new T.BufferAttribute(this.rainPositions,3).setUsage(T.DynamicDrawUsage));this.rain=new T.LineSegments(rg,new T.LineBasicMaterial({color:'#b8d3e1',transparent:true,opacity:.4,depthWrite:false}));this.rain.frustumCulled=false;scene.add(this.rain);scene.fog=new T.FogExp2('#bedcd9',.00105);
   }
   apply(settings:Settings) {
-    const p=presets[settings.quality];this.sunLight.castShadow=p.shadow>0;
+    const p=presets[settings.quality];this.sunLight.castShadow=settings.shadows&&p.shadow>0;
     if(this.sunLight.shadow.mapSize.x!==p.shadow&&p.shadow){this.sunLight.shadow.map?.dispose();this.sunLight.shadow.map=null;this.sunLight.shadow.mapSize.set(p.shadow,p.shadow);}
     this.clouds.count=p.clouds*4;this.rain.geometry.setDrawRange(0,p.rain*2);
     this.water.geometry.dispose();this.water.geometry=new T.PlaneGeometry(6000,6000,p.water,p.water);
   }
-  update(dt:number,camera:T.Camera,settings:Settings,target:T.Vector3) {
+  update(dt:number,camera:T.Camera,settings:Settings,target:T.Vector3,transitionDt=dt) {
     this.elapsed+=dt;this.waterTime.value=this.elapsed;
     if(settings.cycle)settings.time=(settings.time+dt*.018)%24;
     this.skyRoot.position.copy(camera.position);
     const angle=(settings.time-6)/24*Math.PI*2,alt=solarAltitude(settings.time),day=T.MathUtils.smoothstep(alt,-.17,.25);
     const direction=new T.Vector3(-Math.cos(angle)*.85,alt,Math.cos(angle)*.53).normalize();
     this.sun.position.copy(direction).multiplyScalar(1400);this.moon.position.copy(direction).multiplyScalar(-1400);this.sun.visible=alt>-.06;this.moon.visible=alt<.06;
-    const weatherTarget=settings.weather==='Rain'?1:settings.weather==='Cloudy'?.55:0;this.weatherMix=T.MathUtils.damp(this.weatherMix,weatherTarget,1,dt);this.wetness=T.MathUtils.damp(this.wetness,settings.weather==='Rain'?1:0,settings.weather==='Rain'?.15:.025,dt);this.wet.value=this.wetness;
+    const weatherTarget=settings.weather==='Rain'?1:settings.weather==='Cloudy'?.55:0;this.weatherMix=T.MathUtils.damp(this.weatherMix,weatherTarget,1,transitionDt);this.wetness=T.MathUtils.damp(this.wetness,settings.weather==='Rain'?1:0,settings.weather==='Rain'?.15:.025,dt);this.wet.value=this.wetness;
     this.sunLight.position.copy(target).addScaledVector(alt>0?direction:direction.clone().negate(),180);this.sunLight.target.position.copy(target);this.sunLight.intensity=(alt>0?3.1*day:.65)*(1-this.weatherMix*.55);this.sunLight.color.set(alt>0?(alt<.3?'#ffbc7c':'#fff1d2'):'#adc7ff');this.ambient.intensity=.42+day*1.7-this.weatherMix*.4;
     materials.light.emissiveIntensity=(1-day)*2.5+.05;materials.road.roughness=.94-this.wetness*.77;materials.road.metalness=.04+this.wetness*.4;this.scene.environmentIntensity=.15+day*.6;
     this.starMaterial.opacity=(1-day)*(1-this.weatherMix*.8);this.cloudMaterial.opacity=.6+this.weatherMix*.25;this.cloudMaterial.color.setRGB(.95-this.weatherMix*.5,.97-this.weatherMix*.48,1-this.weatherMix*.42).multiplyScalar(.18+day*.82);
@@ -49,8 +49,8 @@ export class Environment {
     const horizon=new T.Color('#b6dcd8').lerp(new T.Color('#f3bd91'),(1-T.MathUtils.smoothstep(Math.abs(alt),0,.38))*.85).lerp(new T.Color('#718b98'),this.weatherMix*.8).lerp(new T.Color('#172638'),1-day);
     const top=new T.Color('#519dbe').lerp(new T.Color('#637f93'),this.weatherMix).lerp(new T.Color('#06111f'),1-day);
     const fog=this.scene.fog as T.FogExp2;fog.color.copy(horizon);fog.density=.00085+this.weatherMix*.0016;
-    this.tick+=dt;if(this.tick>.25){this.tick=0;const c=new T.Color();for(let i=0;i<this.skyGeometry.attributes.position.count;i++){const height=this.skyGeometry.attributes.position.getY(i)/1750; c.copy(horizon).lerp(top,Math.max(0,Math.min(1,height*1.5)));c.toArray(this.colors,i*3);}this.skyGeometry.attributes.color.needsUpdate=true;}
-    this.rain.visible=this.weatherMix>.2&&settings.weather==='Rain';
+    this.tick+=transitionDt;if(this.tick>.25){this.tick=0;const c=new T.Color();for(let i=0;i<this.skyGeometry.attributes.position.count;i++){const height=this.skyGeometry.attributes.position.getY(i)/1750; c.copy(horizon).lerp(top,Math.max(0,Math.min(1,height*1.5)));c.toArray(this.colors,i*3);}this.skyGeometry.attributes.color.needsUpdate=true;}
+    this.rain.visible=settings.weatherEffects&&this.weatherMix>.2&&settings.weather==='Rain';
     if(this.rain.visible){this.rain.position.copy(target);for(let i=0;i<this.rainPositions.length;i+=6){this.rainPositions[i+1]-=dt*24;if(this.rainPositions[i+1]<0)this.rainPositions[i+1]=35;this.rainPositions[i+3]=this.rainPositions[i]+.22;this.rainPositions[i+4]=this.rainPositions[i+1]-1;this.rainPositions[i+5]=this.rainPositions[i+2];}this.rain.geometry.attributes.position.needsUpdate=true;}
   }
 }

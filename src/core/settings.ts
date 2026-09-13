@@ -1,29 +1,34 @@
 export type Quality = 'Low' | 'Medium' | 'High' | 'Ultra';
 export type Culling = 'OFF' | 'LOW' | 'MEDIUM' | 'HIGH' | 'AUTO';
 export type Weather = 'Clear' | 'Cloudy' | 'Rain';
-export interface Settings { quality: Quality; culling: Culling; distance: number; time: number; cycle: boolean; weather: Weather; debug: boolean; sensitivity: number; fov: number; wireframe: boolean }
+export interface Settings { quality: Quality; culling: Culling; distance: number; time: number; cycle: boolean; weather: Weather; debug: boolean; sensitivity: number; fov: number; wireframe: boolean; resolution: number; shadows: boolean; weatherEffects: boolean; traffic: number; pedestrians: number }
 export const presets = {
   Low: { dpr: .75, shadow: 0, detail: .65, population: 6, rain: 250, clouds: 6, water: 32 },
   Medium: { dpr: 1, shadow: 512, detail: .85, population: 10, rain: 500, clouds: 10, water: 64 },
   High: { dpr: 1.5, shadow: 1024, detail: 1, population: 16, rain: 900, clouds: 16, water: 96 },
   Ultra: { dpr: 2, shadow: 2048, detail: 1.3, population: 24, rain: 1600, clouds: 24, water: 160 },
 };
-export function defaults(mobile = false): Settings { return { quality: mobile ? 'Low' : 'High', culling: 'AUTO', distance: 400, time: 15.7, cycle: true, weather: 'Clear', debug: false, sensitivity: 1, fov: 58, wireframe: false }; }
+export function defaults(mobile = false): Settings { return { quality: mobile ? 'Low' : 'High', culling: 'MEDIUM', distance: 400, time: 15.7, cycle: true, weather: 'Clear', debug: false, sensitivity: 1, fov: 58, wireframe: false, resolution: 1, shadows: true, weatherEffects: true, traffic: 1, pedestrians: 1 }; }
 export function validateSettings(data: unknown, mobile = false): Settings {
   const result = defaults(mobile); if (!data || typeof data !== 'object') return result;
   const d = data as Record<string, unknown>;
   if (typeof d.quality === 'string' && d.quality in presets) result.quality = d.quality as Quality;
   if (['OFF', 'LOW', 'MEDIUM', 'HIGH', 'AUTO'].includes(String(d.culling))) result.culling = d.culling as Culling;
   if (['Clear', 'Cloudy', 'Rain'].includes(String(d.weather))) result.weather = d.weather as Weather;
-  for (const [key, min, max] of [['distance', 140, 700], ['time', 0, 24], ['sensitivity', .3, 2], ['fov', 45, 85]] as const) {
+  for (const [key, min, max] of [['distance', 140, 700], ['time', 0, 24], ['sensitivity', .3, 2], ['fov', 45, 85], ['resolution', .5, 1], ['traffic', 0, 1], ['pedestrians', 0, 1]] as const) {
     if (typeof d[key] === 'number' && Number.isFinite(d[key])) result[key] = Math.max(min, Math.min(max, d[key]));
   }
-  for (const key of ['cycle', 'debug', 'wireframe'] as const) if (typeof d[key] === 'boolean') result[key] = d[key];
+  for (const key of ['cycle', 'debug', 'wireframe', 'shadows', 'weatherEffects'] as const) if (typeof d[key] === 'boolean') result[key] = d[key];
   return result;
 }
 export function loadSettings(mobile: boolean) { try { return validateSettings(JSON.parse(localStorage.getItem('coastal-city.settings.v1') || 'null'), mobile); } catch { return defaults(mobile); } }
 export function saveSettings(settings: Settings) { try { localStorage.setItem('coastal-city.settings.v1', JSON.stringify(settings)); } catch { /* Private WebViews can deny storage; settings still work for the session. */ } }
-export function residencyRadius(mode: Culling, distance: number, auto: 'LOW' | 'MEDIUM' | 'HIGH') { return mode === 'OFF' ? Infinity : distance * ({ LOW: 1.35, MEDIUM: 1, HIGH: .7 }[mode === 'AUTO' ? auto : mode]); }
+export function residencyRadius(mode: Culling, _distance: number, auto: 'LOW' | 'MEDIUM' | 'HIGH') { return mode === 'OFF' ? Infinity : ({ LOW: 560, MEDIUM: 340, HIGH: 210 }[mode === 'AUTO' ? auto : mode]); }
+export function adaptCulling(current: 'LOW' | 'MEDIUM' | 'HIGH', frameMs: number) {
+  if (current === 'LOW') return frameMs > 27 ? 'MEDIUM' : 'LOW';
+  if (current === 'HIGH') return frameMs < 25 ? 'MEDIUM' : 'HIGH';
+  return frameMs > 38 ? 'HIGH' : frameMs < 18 ? 'LOW' : 'MEDIUM';
+}
 export function chooseLOD(distance: number, detail: number, previous = 2) {
   const margin = 12;
   if (distance < 105 * detail + (previous === 0 ? margin : -margin)) return 0;

@@ -1,23 +1,24 @@
 import * as T from 'three/webgpu';
 import { Batch, building, palm, materials, type Building } from '../assets/models';
 import { seeded } from '../core/settings';
-import { coast, CollisionWorld } from './queries';
-export interface Chunk { id: number; x: number; z: number; buildings: Building[]; group: T.Group; detail: number; resident: boolean; lastChange: number }
+import { coast, bridgeHeight, terrainHeight, CollisionWorld } from './queries';
+export interface Chunk { id: number; x: number; z: number; buildings: Building[]; group: T.Group | null; detail: number; resident: boolean; lastChange: number }
 export class World {
   root = new T.Group(); chunks: Chunk[] = []; collision = new CollisionWorld(); wheel = new T.Group();
   constructor(public scene: T.Scene) { scene.add(this.root); }
   async create(progress: (p:number,label:string)=>void) {
-    this.createTerrain(); this.createRoads(); this.createMarina(); this.createBridge(); this.createIsland(); this.createWheel();
+    this.createTerrain(); this.createRoads(); this.createMarina(); this.createBridge(); this.createIsland(); this.createWheel(); this.createHarbor();
     const random=seeded(771);
     for(let iz=0;iz<5;iz++) for(let ix=0;ix<4;ix++) {
       const x=-200+ix*80,z=-200+iz*80, buildings: Building[]=[];
       for(const dx of [-18,18])for(const dz of [-18,18]) {
         const central=Math.max(0,1-Math.hypot(x+55,z+105)/245);
-        const h=15+random()*27+central*random()*100;
-        const p={x:x+dx,z:z+dz,w:19+random()*6,d:19+random()*5,h,style:Math.floor(random()*5)};
+        const residential=z>80, shops=z===40&&ix===3;
+        const h=residential?6+random()*5:shops?8+random()*7:15+random()*27+central*random()*100;
+        const p={x:x+dx,z:z+dz,w:19+random()*6,d:19+random()*5,h,style:residential?5:shops?6:Math.floor(random()*5)};
         buildings.push(p); this.collision.add({...p,w:p.w+3,d:p.d+3});
       }
-      const chunk:Chunk={id:this.chunks.length,x,z,buildings,group:new T.Group(),detail:2,resident:false,lastChange:0};
+      const chunk:Chunk={id:this.chunks.length,x,z,buildings,group:null,detail:2,resident:true,lastChange:0};
       chunk.group=this.buildChunk(chunk,2); this.root.add(chunk.group); this.chunks.push(chunk);
       progress(.2+this.chunks.length/20*.6,'Building the waterfront');
       await new Promise(r=>setTimeout(r,0));
@@ -41,14 +42,24 @@ export class World {
     return b.finish();
   }
   createTerrain() {
-    const land=new T.Shape(); land.moveTo(-284,-260); land.lineTo(116,-260);
-    for(let z=-260;z<=220;z+=10)land.lineTo(coast(z),z);
-    land.lineTo(-284,220); land.closePath();
-    const geometry=new T.ExtrudeGeometry(land,{depth:5,bevelEnabled:true,bevelThickness:2,bevelSize:4,bevelSegments:2,steps:1});geometry.rotateX(Math.PI/2);
-    const mesh=new T.Mesh(geometry,materials.sand);mesh.position.y=2.45;mesh.receiveShadow=true;this.root.add(mesh);
-    const b=new Batch(); b.add('box','grass',-87,1, -20,388,2.95,475);
+    const positions:number[]=[],colors:number[]=[],indices:number[]=[],nx=140,nz=120;
+    const grass=new T.Color('#6e9555'),sand=new T.Color('#f0d9a5'),rock=new T.Color('#929285');
+    for(let j=0;j<=nz;j++)for(let i=0;i<=nx;i++){
+      const z=-260+j/nz*480,x=-350+i/nx*(coast(z)+350),y=terrainHeight(x,z);
+      positions.push(x,y,z);
+      const c=grass.clone().lerp(sand,T.MathUtils.smoothstep(x,coast(z)-28,coast(z)-9));
+      if(y>10)c.lerp(rock,T.MathUtils.smoothstep(y,10,39)*.8);
+      c.multiplyScalar(.97+Math.sin(x*.13)*Math.cos(z*.14)*.03).toArray(colors,colors.length);
+      if(i<nx&&j<nz){const a=j*(nx+1)+i;indices.push(a,a+nx+1,a+1,a+1,a+nx+1,a+nx+2);}
+    }
+    const geometry=new T.BufferGeometry();geometry.setAttribute('position',new T.Float32BufferAttribute(positions,3));geometry.setAttribute('color',new T.Float32BufferAttribute(colors,3));geometry.setIndex(indices);geometry.computeVertexNormals();
+    const mesh=new T.Mesh(geometry,new T.MeshStandardMaterial({vertexColors:true,roughness:1}));mesh.receiveShadow=true;this.root.add(mesh);
+    const b=new Batch();
+    for(let z=-220;z<210;z+=28){const x=-312+Math.sin(z*.02)*15;palm(b,x,z,8,1,terrainHeight(x,z));}
+    for(let z=90;z<170;z+=4){const x=-262-(z-90)*.5;b.add('box','sand',x,terrainHeight(x,z)+.04,z,5,.15,5);}
+    b.add('cylinder','wood',-302,terrainHeight(-302,170)+.1,170,7,.3,7);
     for(let z=-240;z<210;z+=12) { const x=coast(z); b.add('box','ivory',x-5,2.5,z,9,.22,12.2); if(z%24===0)palm(b,x-9,z,9,0); }
-    for(let z=-230;z<200;z+=16) { b.add('sphere','grass',-275,3,z,14,7+(z%3)*2,11); b.add('sphere','concrete',-280,3,z+7,8,5,8); }
+    for(let z=-230;z<200;z+=16) { b.add('sphere','leaf',-325,terrainHeight(-325,z)+1,z,4,3,4); b.add('sphere','concrete',-335,terrainHeight(-335,z+7),z+7,3,2,3); }
     this.root.add(b.finish());
   }
   createRoads() {
@@ -70,8 +81,13 @@ export class World {
     this.root.add(b.finish());
   }
   createBridge() {
-    const b=new Batch(); b.add('box','concrete',179,2.9,-80,218,1,17); b.add('box','road',179,3.44,-80,218,.08,12);
-    for(let x=80;x<285;x+=12)b.add('box','line',x,3.5,-80,5,.02,.16);
+    const b=new Batch();
+    for(const [start,end] of [[70,100],[100,266],[266,296]]){
+      const y1=bridgeHeight(start),y2=bridgeHeight(end),angle=Math.atan2(y2-y1,end-start),length=Math.hypot(end-start,y2-y1);
+      b.add('box','concrete',(start+end)/2,(y1+y2)/2-.5,-80,length,1,17,0,angle);
+      b.add('box','road',(start+end)/2,(y1+y2)/2,-80,length,.08,12,0,angle);
+    }
+    for(let x=80;x<290;x+=12)b.add('box','line',x,bridgeHeight(x)+.05,-80,5,.02,.16);
     for(const x of [141,218]) {
       for(const z of [-88,-72]) { b.add('box','ivory',x,25,z,2.3,53,2.3);b.add('cylinder','concrete',x,-.5,z,2.5,10,2.5); }
       b.add('box','ivory',x,40,-80,2,2,16);
@@ -88,11 +104,24 @@ export class World {
     b.add('box','glass',310,2.8,-80,12,.4,25);
     this.root.add(b.finish());
   }
+  createHarbor() {
+    const b=new Batch();
+    b.add('box','road',-160,2.62,190,13,.12,60);
+    b.add('box','concrete',-156,2.5,202,132,.12,29);
+    for(const x of [-207,-112]){
+      building(b,{x,z:193,w:28,d:22,h:10,style:7},0);
+      this.collision.add({x,z:193,w:30,d:24,h:12});
+    }
+    for(let i=0;i<6;i++){const x=-195+i*12;b.add('box',i%2?'teal':'coral',x,4,211,9,3,4);b.add('box','ivory',x,5.6,211,9,.15,4.1);this.collision.add({x,z:211,w:9,d:4,h:3.2});}
+    for(const x of [-230,-85]){b.add('box','line',x,13,211,1.2,22,1.2);b.add('box','line',x,23,218,1,1,21);b.beam('dark',new T.Vector3(x,23,227),new T.Vector3(x,10,227),.06);}
+    this.root.add(b.finish());
+  }
   createWheel() {
     const b=new Batch();
     for(const x of [87,103])b.beam('ivory',new T.Vector3(x,2.5,28),new T.Vector3(95,20,28),.5);
     const ring=new T.Mesh(new T.TorusGeometry(14,.22,5,48),materials.ivory); this.wheel.add(ring);
-    for(let i=0;i<12;i++) {const a=i/12*Math.PI*2, x=Math.cos(a)*14,y=Math.sin(a)*14; b.beam('concrete',new T.Vector3(95,20,28),new T.Vector3(95+x,20+y,28),.08); const gondola=new T.Mesh(new T.SphereGeometry(1.1,8,6),materials[i%2?'coral':'teal']);gondola.position.set(x,y,0);this.wheel.add(gondola);}
-    this.wheel.position.set(95,20,28);this.root.add(b.finish(),this.wheel);
+    const spokes=new Batch();
+    for(let i=0;i<12;i++) {const a=i/12*Math.PI*2, x=Math.cos(a)*14,y=Math.sin(a)*14; spokes.beam('light',new T.Vector3(),new T.Vector3(x,y,0),.08); const gondola=new T.Mesh(new T.SphereGeometry(1.1,8,6),materials[i%2?'coral':'teal']);gondola.position.set(x,y,0);this.wheel.add(gondola);}
+    this.wheel.add(spokes.finish());this.wheel.position.set(95,20,28);this.root.add(b.finish(),this.wheel);
   }
 }

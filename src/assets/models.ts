@@ -29,7 +29,8 @@ const frond = (() => {
   for (let i = 0; i <= 8; i++) { const t = i / 8, width = Math.sin(t * Math.PI) * .65; positions.push(t * 5, Math.sin(t * Math.PI) * 1.2 - t * 1.4, -width, t * 5, Math.sin(t * Math.PI) * 1.2 - t * 1.4, width); if (i < 8) { const n = i * 2; indices.push(n, n+1, n+2, n+1, n+3, n+2); } }
   const g = new T.BufferGeometry(); g.setAttribute('position', new T.Float32BufferAttribute(positions, 3)); g.setIndex(indices); g.computeVertexNormals(); return g;
 })();
-const geo = { box, cylinder, sphere, cone, frond };
+const roof = (() => { const shape=new T.Shape();shape.moveTo(-.5,0);shape.lineTo(.5,0);shape.lineTo(0,1);shape.closePath();const g=new T.ExtrudeGeometry(shape,{depth:1,bevelEnabled:false});g.translate(0,0,-.5);return g; })();
+const geo = { box, cylinder, sphere, cone, frond, roof };
 type Geo = keyof typeof geo;
 export class Batch {
   private items = new Map<string, T.Matrix4[]>();
@@ -58,6 +59,23 @@ export function palm(b: Batch, x: number, z: number, height: number, detail: num
 export interface Building { x: number; z: number; w: number; d: number; h: number; style: number }
 export function building(b: Batch, p: Building, detail: number) {
   const {x,z,w,d,h,style} = p, y = 2.5;
+  if(style>=5){
+    const house=style===5,shop=style===6;
+    b.add('box',house?'ivory':shop?'sand':'concrete',x,y+h/2,z,w,h,d);
+    b.add('roof',house?'coral':'dark',x,y+h,z,w+1.5,house?3:1.5,d+1.5);
+    b.add('box','dark',x,y+1.8,z+d/2+.05,shop?w*.65:w*.23,3.6,.1);
+    for(const side of [-1,1])for(const k of [-1,1]){
+      b.add('box','glass',x+k*w*.31,y+h*.58,z+side*(d/2+.06),w*.2,h*.33,.12);
+      b.add('box','light',x+k*w*.31,y+h*.58,z+side*(d/2+.14),w*.04,h*.25,.05);
+    }
+    if(detail<2){
+      b.add('box',shop?'coral':'ivory',x,y+3.8,z+d/2+1.4,w*.85,.3,3);
+      for(const side of [-1,1])b.add('cylinder','ivory',x+side*w*.39,y+1.85,z+d/2+2.3,.16,3.7,.16);
+      if(shop)b.add('box','teal',x,y+5,z+d/2+.12,w*.58,1,.15);
+      if(style===7)for(let k=-3;k<=3;k++)b.add('box','ivory',x+k*w/8,y+h/2,z+d/2+.08,.15,h,.15);
+    }
+    return;
+  }
   const glass: Mat = style % 3 === 0 ? 'blue' : style % 3 === 1 ? 'glass' : 'teal';
   b.add('box','ivory',x,y+2,z,w+3,4,d+3);
   const round = style === 2;
@@ -70,6 +88,7 @@ export function building(b: Batch, p: Building, detail: number) {
   }
   b.add('box','concrete',x,y+h+2,z,w*.25,3,d*.22);
   if (h > 65) b.add('cylinder','ivory',x,y+h+8,z,.15,13,.15);
+  for(const side of [-1,1])for(let row=1;row<4;row++)b.add('box','light',x,y+h*row/5,z+side*(d/2+.03),w*.45,.7,.06);
   if (detail === 2) { for (let i = 1; i < 6; i++) b.add(round ? 'cylinder' : 'box','ivory',x,y+h*i/6,z,round?w*.55:w+.25,.4,round?d*.55:d+.25); return; }
   const floors = Math.floor(h / 3.5);
   for (let floor = 1; floor < floors * (round ? 1 : .82); floor++) {
@@ -112,11 +131,12 @@ export function makeBoat(detail = 0) {
   if(detail===0) { b.add('cylinder','white',0,2.7,-.7,.035,1.5,.035); b.add('box','coral',.25,3.2,-.7,.5,.3,.03); }
   g.add(b.finish()); return g;
 }
-export function makeHuman(shirt: Mat = 'ivory') {
+export function makeHuman(shirt: Mat = 'ivory', detail = 0) {
   const g = new T.Group(), b = new Batch();
-  b.add('sphere','trunk',0,1.67,0,.19,.23,.19); b.add('box',shirt,0,1.14,0,.52,.65,.3); b.add('sphere','dark',0,1.85,.02,.21,.09,.22);
+  if(detail>0){b.add('sphere','trunk',0,1.67,0,.19,.23,.19);b.add('cylinder',shirt,0,1.15,0,.25,.7,.18);for(const x of [-.13,.13])b.add('cylinder','dark',x,.44,0,.1,.8,.1);g.add(b.finish());g.userData.limbs=[];return g;}
+  b.add('sphere','trunk',0,1.67,0,.19,.23,.19); b.add('sphere',shirt,0,1.16,0,.28,.39,.19); b.add('box','dark',0,1.27,.24,.32,.43,.17); b.add('sphere','dark',0,1.85,.02,.21,.09,.22);
   const limbs: T.Group[] = [];
-  for (let i=0;i<4;i++) { const limb = new T.Group(), lb = new Batch(); const arm = i<2; lb.add('box',arm?shirt:'dark',0,-.29,0,arm?.14:.2,arm?.61:.69,arm?.18:.22); if(!arm) lb.add('box','white',0,-.66,-.07,.21,.13,.36); limb.position.set((i%2?1:-1)*(arm?.35:.15),arm?1.43:.83,0); limb.add(lb.finish()); limbs.push(limb); g.add(limb); }
+  for (let i=0;i<4;i++) { const limb = new T.Group(), lb = new Batch(); const arm = i<2; lb.add('cylinder',arm?shirt:'dark',0,-.29,0,arm?.09:.115,arm?.61:.69,arm?.09:.115); if(arm)lb.add('sphere','trunk',0,-.61,0,.075,.1,.075); if(!arm) lb.add('box','white',0,-.66,-.07,.21,.13,.36); limb.position.set((i%2?1:-1)*(arm?.35:.15),arm?1.43:.83,0); limb.add(lb.finish()); limbs.push(limb); g.add(limb); }
   g.add(b.finish()); g.userData.limbs=limbs; return g;
 }
 export function animateHuman(g: T.Group, time: number, speed: number) { const limbs = g.userData.limbs as T.Group[]; limbs.forEach((l,i) => l.rotation.x=Math.sin(time*9+(i%2)*Math.PI)*(i<2?-.55:.65)*Math.min(speed,1)); }
