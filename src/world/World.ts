@@ -38,7 +38,13 @@ function buildTerrainTile(
       const z = z0 + iz * step;
       const h = terrainHeight(x, z);
       if (h > -0.6) hasLand = true;
-      positions.push(x, Math.max(h, -1.0), z);
+      // Visually depress terrain under roads so road geometry sits cleanly above it.
+      // groundHeight() is unaffected — only the rendered mesh is lowered here.
+      const RDEP = 0.16;
+      let vh = h;
+      for (const rx of [-240,-160,-80,0,80])    { const d=Math.abs(x-rx); if(d<11) vh-=RDEP*(1-d/11); }
+      for (const rz of [-240,-160,-80,0,80,160]) { const d=Math.abs(z-rz); if(d<11) vh-=RDEP*(1-d/11); }
+      positions.push(x, Math.max(vh, -1.0), z);
 
       // ── Biome vertex colours ──────────────────────────────────────────────
       const cx = coast(z);
@@ -138,7 +144,12 @@ export class World {
           const h = baseH + downtownBonus + centralBonus;
           const w = 18 + random() * 12;
           const d = 17 + random() * 11;
-          const p: Building = { x: cx+dx, z: cz+dz, w, d, h, style: Math.floor(random()*5) };
+          const bx = cx+dx, bz = cz+dz;
+          // Skip buildings whose footprint would block any road
+          const blocksX = ROAD_XS.some(rx => Math.abs(bx-rx) < w/2 + 11);
+          const blocksZ = ROAD_ZS.some(rz => Math.abs(bz-rz) < d/2 + 11);
+          if (blocksX || blocksZ) { random(); random(); continue; } // consume RNG for repeatability
+          const p: Building = { x: bx, z: bz, w, d, h, style: Math.floor(random()*5) };
           buildings.push(p);
           this.collision.add({ ...p, w: p.w + 3, d: p.d + 3 });
         }
@@ -202,26 +213,27 @@ export class World {
     chunk.buildings.forEach(p => building(b, p, detail));
 
     if (detail < 2) {
-      // Sidewalk slab under each cluster
-      b.add('box', 'concrete', chunk.x, 2.503, chunk.z, 48, 0.04, 46);
+      // Sidewalk slab — raised above terrain to avoid z-fighting
+      b.add('box', 'concrete', chunk.x, 2.54, chunk.z, 48, 0.06, 46);
 
-      // Corner planters with small shrubs
+      // Corner planters with small shrubs — grounded correctly
       for (const [dx, dz] of [[-14, -14],[14,-14],[-14,14],[14,14]]) {
-        b.add('box', 'dark',    chunk.x+dx, 2.51,  chunk.z+dz, 3.5, 0.10, 3.5);
-        b.add('box', 'grass',   chunk.x+dx, 2.63,  chunk.z+dz, 3.2, 0.18, 3.2);
-        b.add('sphere','leaf',  chunk.x+dx, 3.1,   chunk.z+dz, 1.8, 1.4,  1.8,  Math.random()*6.28);
+        b.add('box', 'dark',   chunk.x+dx, 2.56,  chunk.z+dz, 3.5, 0.12, 3.5);
+        b.add('box', 'grass',  chunk.x+dx, 2.69,  chunk.z+dz, 3.1, 0.14, 3.1);
+        b.add('sphere','leaf', chunk.x+dx, 3.08,  chunk.z+dz, 1.7, 1.3,  1.7,  Math.random()*6.28);
       }
 
       // Streetlights on all 4 sides of block
       for (const [ox, oz] of [[-24,0],[24,0],[0,-24],[0,24]]) {
-        b.add('cylinder','dark', chunk.x+ox, 6.0, chunk.z+oz, .075, 7.8, .075);
-        // Arm
+        b.add('cylinder','dark', chunk.x+ox, 6.1, chunk.z+oz, .075, 8.0, .075);
+        const isX = ox !== 0;
         b.add('box','dark',
-          chunk.x+ox + (ox!==0?Math.sign(ox)*1.2:1.4),
-          9.5,
-          chunk.z+oz + (oz!==0?Math.sign(oz)*1.2:0),
-          Math.abs(ox)>0 ? .08 : 2.8, .09, Math.abs(oz)>0 ? 2.8 : .08);
-        b.add('sphere','light', chunk.x+ox+(ox!==0?Math.sign(ox)*1:1), 9.42, chunk.z+oz+(oz!==0?Math.sign(oz)*1:0), .3,.14,.3);
+          chunk.x+ox + (isX ? Math.sign(ox)*1.2 : 1.4), 9.6,
+          chunk.z+oz + (!isX ? Math.sign(oz)*1.2 : 0),
+          isX ? .08 : 2.8, .09, isX ? 2.8 : .08);
+        b.add('sphere','light',
+          chunk.x+ox+(isX?Math.sign(ox):1), 9.52,
+          chunk.z+oz+(!isX?Math.sign(oz):0), .3,.14,.3);
       }
     }
     return b.finish();
@@ -231,42 +243,45 @@ export class World {
   createRoads() {
     const b = new Batch();
 
+    // Road Y levels — all raised above terrain (2.5) so no z-fighting
+    const RY  = 2.52;  // concrete base top ≈ 2.60 (comfortably above terrain 2.5)
+    const RYR = 2.63;  // asphalt surface
+    const RYL = 2.70;  // lane markings
+    const RYC = 2.71;  // crosswalk stripes
+
     // Vertical roads
     for (const x of ROAD_XS) {
-      b.add('box','concrete', x, 2.48, -40, 19, .16, 423);
-      b.add('box','road',     x, 2.60, -40, 13, .12, 423);
-      // Lane dividers
+      b.add('box','concrete', x, RY,  -40, 19, .16, 423);
+      b.add('box','road',     x, RYR, -40, 13, .12, 423);
       for (let z = -248; z < 170; z += 11)
-        b.add('box','line', x, 2.67, z, .16, .025, 4);
-      // Kerb strips
-      for (const side of [-1,1]) {
-        b.add('box','concrete', x + side*9.8, 2.51, -40, .4, .22, 423);
-      }
+        b.add('box','line', x, RYL, z, .16, .025, 4);
+      for (const side of [-1,1])
+        b.add('box','concrete', x + side*9.8, RY+.04, -40, .4, .22, 423);
     }
 
     // Horizontal roads
     for (const z of ROAD_ZS) {
-      b.add('box','concrete',-78, 2.48, z, 341, .16, 19);
-      b.add('box','road',    -78, 2.60, z, 341, .12, 13);
+      b.add('box','concrete',-78, RY,  z, 341, .16, 19);
+      b.add('box','road',    -78, RYR, z, 341, .12, 13);
       for (let x = -243; x < 86; x += 11)
-        b.add('box','line', x, 2.70, z, 4, .025, .16);
+        b.add('box','line', x, RYL, z, 4, .025, .16);
       for (const side of [-1,1])
-        b.add('box','concrete',-78, 2.51, z + side*9.8, 341, .22, .4);
+        b.add('box','concrete',-78, RY+.04, z + side*9.8, 341, .22, .4);
     }
 
     // Crosswalk stripes at major intersections
     for (const rx of ROAD_XS) for (const rz of ROAD_ZS) {
       for (let i = -2; i <= 2; i++) {
-        b.add('box','line', rx + i*1.7, 2.72, rz + 9.5, 1.1, .03,  3);
-        b.add('box','line', rx + 9.5,   2.72, rz + i*1.7, 3, .03, 1.1);
+        b.add('box','line', rx + i*1.7, RYC, rz + 9.5, 1.1, .03,  3);
+        b.add('box','line', rx + 9.5,   RYC, rz + i*1.7, 3, .03, 1.1);
       }
     }
 
-    // Traffic signal poles at intersections
+    // Traffic signal poles — moved to kerb edge, not blocking lanes
     for (const rx of ROAD_XS) for (const rz of ROAD_ZS) {
-      b.add('cylinder','dark', rx+8, 4,    rz+8, .10, 6,   .10);
-      b.add('box',     'dark', rx+8, 7.1,  rz+8, .72, 1.6, .42);
-      b.add('sphere',  'coral',rx+8, 7.7,  rz+8.25, .16,.16,.08);
+      b.add('cylinder','dark', rx+10.5, 4.2,  rz+10.5, .10, 6.5, .10);
+      b.add('box',     'dark', rx+10.5, 7.5,  rz+10.5, .72, 1.6, .42);
+      b.add('sphere',  'coral',rx+10.5, 8.1,  rz+10.7, .16,.16,.08);
     }
 
     this.root.add(b.finish());
@@ -279,10 +294,11 @@ export class World {
     // Main promenade walkway (x=88..102, z=-90..170)
     b.add('box','concrete', 95, 2.515, 40, 20, .06, 270);
 
-    // Steps down to water (3 tiers)
-    b.add('box','concrete', 106, 2.30, 40, 10, .25, 270);
-    b.add('box','concrete', 112, 1.90, 40, 10, .25, 270);
-    b.add('box','concrete', 117, 1.48, 40, 10, .25, 270);
+    // Short pier / viewing platforms at select spots — NOT full-length bands
+    for (const pz of [-60, 0, 50, 115]) {
+      b.add('box','concrete', 107, 2.22, pz, 8, .18, 9);
+      b.add('box','concrete', 113, 1.82, pz, 8, .18, 9);
+    }
 
     // Railing posts every 4 m
     for (let z = -88; z <= 168; z += 4) {
@@ -475,24 +491,24 @@ export class World {
   createStreetDetail() {
     const b = new Batch();
 
-    // Median planters and low shrubs on main N-S roads
+    // Road planters — y raised to sit above the road surface (RYR≈2.63)
+    const PM = 2.70; // planter base above road
+    // Median planters on main N-S roads
     for (const rx of ROAD_XS) {
       for (let z = -230; z < 165; z += 32) {
         if (ROAD_ZS.some(rz => Math.abs(z - rz) < 18)) continue;
-        // Planter box
-        b.add('box','dark',  rx, 2.53, z, 6, .14, 2.5);
-        b.add('box','grass', rx, 2.66, z, 5.5, .18, 2.0);
-        b.add('sphere','leafLight', rx, 3.15, z, 2.2, 1.6, 2.2, z*.1);
+        b.add('box','dark',  rx, PM,      z, 6, .12, 2.5);
+        b.add('box','grass', rx, PM+.13,  z, 5.5, .14, 2.0);
+        b.add('sphere','leafLight', rx, PM+.75, z, 2.2, 1.6, 2.2, z*.1);
       }
     }
-
-    // Median planters on E-W roads (z=0 and z=-80)
+    // Median planters on E-W roads
     for (const rz of [0, -80]) {
       for (let x = -225; x < 78; x += 32) {
         if (ROAD_XS.some(rx => Math.abs(x - rx) < 18)) continue;
-        b.add('box','dark',  x, 2.53, rz, 2.5, .14, 6);
-        b.add('box','grass', x, 2.66, rz, 2.0, .18, 5.5);
-        b.add('sphere','leaf', x, 3.1, rz, 2.0, 1.5, 2.0, x*.07);
+        b.add('box','dark',  x, PM,      rz, 2.5, .12, 6);
+        b.add('box','grass', x, PM+.13,  rz, 2.0, .14, 5.5);
+        b.add('sphere','leaf', x, PM+.72, rz, 2.0, 1.5, 2.0, x*.07);
       }
     }
 
@@ -539,11 +555,13 @@ export class World {
   createPalms(random: () => number) {
     const b = new Batch();
 
-    // 1. Waterfront promenade (west side, single staggered row)
+    // 1. Waterfront promenade — palms on the STREET side (west of promenade)
+    //    x=79-83 keeps them clear of the cafe kiosks at x=87 and the railing at x=101
     for (let z = -82; z <= 165; z += 14 + random() * 7) {
-      if (Math.abs(z + 80) < 18) continue;  // gap where bridge road crosses
-      if (Math.abs(z - 108) < 16) continue; // gap at marina dock entry
-      const px = 84 + random() * 4;
+      if (Math.abs(z + 80) < 20) continue;  // gap where bridge road crosses
+      if (Math.abs(z - 108) < 18) continue; // gap at marina dock entry
+      if (nearRoad(80, z, 12)) continue;     // skip if near E-W road intersections
+      const px = 79 + random() * 4;
       palm(b, px, z, 7.5 + random() * 3, 0, 2.5);
     }
 
