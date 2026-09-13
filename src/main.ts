@@ -1,6 +1,16 @@
 import './styles.css';
 import { Game } from './core/Game';
 import { Capacitor } from '@capacitor/core';
+// Best-effort landscape lock for browser/PWA play — the packaged Android app is already locked
+// via AndroidManifest's android:screenOrientation, this just matches that in the browser too.
+void (async () => {
+  try {
+    const orientation = (screen as any).orientation;
+    if (orientation?.lock) await orientation.lock('landscape');
+  } catch {
+    /* not supported/allowed outside a fullscreen or installed-PWA context — safe to ignore */
+  }
+})();
 const game=new Game();
 void game.boot();
 if(Capacitor.isNativePlatform()) {
