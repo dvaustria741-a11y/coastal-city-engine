@@ -16,7 +16,7 @@ export class Game {
   environment!:Environment;chunks!:ChunkManager;player!:Player;follow!:FollowCamera;activity!:Activity;input!:Input;
   visited=[false,false,false];private last=0;private accumulator=0;private elapsed=0;private frameMs=16;private report=0;private view=0;private hidden=false;
   constructor(){
-    this.ui=new UI(this.settings,{play:()=>this.play(),pause:()=>this.pause(),home:()=>this.home(),settings:p=>this.apply(p),view:v=>this.view=v,respawn:()=>this.respawn(),reset:()=>this.visited.fill(false)});
+    this.ui=new UI(this.settings,{play:()=>this.play(),pause:()=>this.pause(),home:()=>this.home(),settings:p=>this.apply(p),view:v=>this.view=v,respawn:()=>this.respawn(),reset:()=>{this.visited.fill(false);document.querySelector('#objective')!.textContent='Discover the waterfront, marina & island';}});
     this.ui.root.addEventListener('panel-opened',()=>{if(this.state==='playing')this.state='paused';this.input?.reset();if(this.input)this.input.enabled=false;});
     this.ui.root.addEventListener('panel-closed',()=>{if(this.state==='paused'){this.state='playing';this.input.enabled=true;}});
     window.addEventListener('resize',()=>{if(!this.renderer.renderer)return;this.renderer.resize();this.camera.aspect=innerWidth/innerHeight;this.camera.updateProjectionMatrix();});
@@ -25,20 +25,20 @@ export class Game {
   }
   async boot(){
     try{
-      this.ui.progress(.05,'Opening your window to the coast');await this.renderer.init(document.querySelector('#scene')!);this.renderer.apply(this.settings);
+      this.camera.fov=this.settings.fov;this.camera.updateProjectionMatrix();this.ui.progress(.05,'Opening your window to the coast');await this.renderer.init(document.querySelector('#scene')!);this.renderer.apply(this.settings);
       this.environment=new Environment(this.scene);this.environment.apply(this.settings);await this.world.create((p,label)=>this.ui.progress(p,label));
-      this.chunks=new ChunkManager(this.world);this.player=new Player(this.scene,this.world.collision);this.follow=new FollowCamera(this.camera,this.world.collision);this.activity=new Activity(this.scene,this.world.collision);this.input=new Input(this.renderer.renderer.domElement);this.input.bindTouch(this.ui.root);
+      this.chunks=new ChunkManager(this.world);this.player=new Player(this.scene,this.world.collision);this.follow=new FollowCamera(this.camera,this.world.collision);this.activity=new Activity(this.scene,this.world.collision);
       this.camera.position.set(390,224,335);this.camera.lookAt(-15,35,-40);this.environment.update(.3,this.camera,this.settings,new T.Vector3(0,0,0));this.activity.update(0,this.settings,this.player.position,this.camera);this.player.model.visible=false;
-      this.ui.progress(.87,'Finding the light');await this.renderer.renderer.compileAsync(this.scene,this.camera);this.renderer.renderer.render(this.scene,this.camera);
+      this.ui.progress(.87,'Finding the light');await this.renderer.prepare(this.scene,this.camera,this.settings);this.input=new Input(this.renderer.renderer.domElement);this.input.bindTouch(this.ui.root);for(const mat of Object.values(materials))mat.wireframe=this.settings.wireframe;
       this.ui.progress(1,'The coast is yours');this.ui.ready();this.last=performance.now();this.renderer.renderer.setAnimationLoop(time=>this.frame(time));
       (window as Window & {coastal?:unknown}).coastal={snapshot:()=>this.snapshot()};
     }catch(error){console.error('Coastal City initialization:',error);this.ui.failure(error instanceof Error?error.message:'WebGPU or WebGL2 is required. Update your browser or Android System WebView.');}
   }
-  play(){if(!this.input)return;this.state='playing';this.ui.playing(true);this.input.enabled=true;this.player.model.visible=!this.activity.active;this.follow.camera.position.copy(this.player.position).add(new T.Vector3(5,5,9));this.ui.notify('Welcome to the coast. Walk toward the marina, or take the coral car for a spin.');}
+  play(){if(!this.input)return;this.input.reset();this.accumulator=0;this.state='playing';this.ui.playing(true);this.input.enabled=true;this.player.model.visible=!this.activity.active;this.follow.camera.position.copy(this.player.position).add(new T.Vector3(5,5,9));this.ui.notify('Welcome to the coast. Walk toward the marina, or take the coral car for a spin.');}
   pause(){this.input?.reset();this.ui.open('graphics');}
   home(){this.state='menu';this.input.enabled=false;this.input.reset();this.ui.playing(false);this.player.model.visible=false;}
   respawn(){this.activity.active=null;this.activity.car.speed=0;this.activity.boat.speed=0;this.player.respawn();this.player.model.visible=this.state!=='menu';this.follow.yaw=.3;this.ui.notify('Back at the waterfront.');}
-  apply(patch:Partial<Settings>){const quality=patch.quality!==undefined;Object.assign(this.settings,patch);saveSettings(this.settings);if(!this.environment)return;if(quality){this.renderer.apply(this.settings);this.environment.apply(this.settings);}this.camera.fov=this.settings.fov;this.camera.updateProjectionMatrix();for(const mat of Object.values(materials))mat.wireframe=this.settings.wireframe;}
+  apply(patch:Partial<Settings>){const quality=patch.quality!==undefined;Object.assign(this.settings,patch);saveSettings(this.settings);if(!this.environment)return;if(quality||patch.resolution!==undefined||patch.shadows!==undefined)this.renderer.apply(this.settings);if(quality||patch.shadows!==undefined)this.environment.apply(this.settings);this.camera.fov=this.settings.fov;this.camera.updateProjectionMatrix();for(const mat of Object.values(materials))mat.wireframe=this.settings.wireframe;}
   private frame(time:number){
     if(this.hidden){this.last=time;return;}const raw=(time-this.last)/1000;this.last=time;const dt=Math.min(.08,Math.max(0,raw));this.frameMs=this.frameMs*.95+raw*1000*.05;this.elapsed+=dt;
     const playing=this.state==='playing';this.input.enabled=playing&&!this.ui.dialog.open;
@@ -54,7 +54,7 @@ export class Game {
       const poses=[{p:[390,224,335],t:[-15,35,-40]},{p:[185,135,188],t:[-55,49,-96]},{p:[415,120,105],t:[203,8,-69]}];const pose=poses[this.view];const desired=new T.Vector3(...pose.p as [number,number,number]);desired.x+=Math.sin(this.elapsed*.022)*12;this.camera.position.lerp(desired,1-Math.exp(-dt*.55));this.camera.lookAt(new T.Vector3(...pose.t as [number,number,number]));
     }
     const simulated=this.state==='paused'?0:dt;
-    this.environment.update(simulated,this.camera,this.settings,focus);this.activity.update(simulated,this.settings,focus,this.camera);this.world.wheel.rotation.z+=simulated*.04;
+    this.environment.update(simulated,this.camera,this.settings,focus,dt);this.activity.update(simulated,this.settings,focus,this.camera,this.chunks.auto);this.world.wheel.rotation.z+=simulated*.04;
     const streamFocus=this.state==='menu'?new T.Vector3(-30,0,-35):focus;
     this.chunks.update(dt,streamFocus,this.settings,this.frameMs,this.state==='menu');
     this.renderer.renderer.render(this.scene,this.camera);
@@ -63,11 +63,11 @@ export class Game {
   private updateHUD(focus:T.Vector3){
     this.ui.time();const mode=this.activity.active?.kind;
     document.querySelector('#mode-pill')!.textContent=mode?`${mode==='car'?'DRIVING':'ON THE WATER'} · ${Math.round(this.activity.speed)} KM/H`:'ON FOOT';
-    document.querySelector('#district-name')!.textContent=island(focus.x,focus.z)?'Paloma Island':focus.x>120?'Azure Bay':focus.z<0?'Downtown':'Marina waterfront';
+    document.querySelector('#district-name')!.textContent=island(focus.x,focus.z)?'Paloma Island':focus.x>120?'Azure Bay':focus.x<-255?'Coastal overlook':focus.z>175&&focus.x<-70?'South Harbor':focus.z>90&&focus.x<65?'Paloma Gardens':focus.z<0?'Downtown':'Marina waterfront';
     const nearby=this.activity.active||this.activity.nearest(this.player),hint=document.querySelector<HTMLElement>('#interaction')!;hint.hidden=!nearby||this.state!=='playing';if(nearby)hint.querySelector('span')!.textContent=this.activity.active?'Exit '+nearby.kind:'Enter '+nearby.kind;
     this.visited.forEach((v,i)=>document.getElementById(`cp-${i}`)!.classList.toggle('visited',v));if(this.visited.every(Boolean))document.querySelector('#objective')!.textContent='The coast is yours. Keep exploring.';
     const info=this.renderer.renderer.info,perf=document.querySelector<HTMLElement>('#performance')!;perf.hidden=!this.settings.debug;
-    const r=info.render as unknown as {drawCalls:number;triangles:number};perf.textContent=`${this.renderer.backend} · ${this.settings.quality}\n${Math.round(1000/Math.max(1,this.frameMs))} FPS / ${this.frameMs.toFixed(1)} ms\n${r.drawCalls} draws · ${Math.round(r.triangles/1000)}k triangles\n${this.chunks.resident}/20 resident · ${this.chunks.detailed} detailed\nCulling ${this.settings.culling} (${this.chunks.auto})\n${info.memory.geometries} geometries · ${info.memory.textures} textures\n${this.renderer.renderer.domElement.width} × ${this.renderer.renderer.domElement.height}\nSun ${this.environment.sun.visible?'above':'below'} horizon · Moon ${this.environment.moon.visible?'above':'below'}`;
+    const r=info.render as unknown as {drawCalls:number;triangles:number};perf.textContent=`${this.renderer.backend} · ${this.settings.quality}\n${Math.round(1000/Math.max(1,this.frameMs))} FPS / ${this.frameMs.toFixed(1)} ms\n${r.drawCalls} draws · ${Math.round(r.triangles/1000)}k triangles\n${this.chunks.active} active / ${this.chunks.resident} loaded / ${this.world.chunks.length} chunks\n${this.chunks.detailed} detailed · ${this.chunks.pending} queued\n${this.activity.traffic.filter(o=>o.visible).length} cars · ${this.activity.pedestrians.filter(o=>o.visible).length} NPCs\n${this.settings.time.toFixed(1)} h · ${this.settings.weather}\nDistance ${this.settings.distance} m\nCulling ${this.settings.culling}${this.settings.culling==='AUTO'?' → '+this.chunks.auto:''}\n${info.memory.geometries} geometries · ${info.memory.textures} textures\n${this.renderer.renderer.domElement.width} × ${this.renderer.renderer.domElement.height}\nSun ${this.environment.sun.visible?'above':'below'} horizon · Moon ${this.environment.moon.visible?'above':'below'}`;
     if(this.state!=='menu')this.drawMap(focus);
   }
   private drawMap(focus:T.Vector3){
@@ -76,7 +76,7 @@ export class Game {
     for(const x of [-240,-160,-80,0,80]){ctx.beginPath();ctx.moveTo(x,-250);ctx.lineTo(x,170);ctx.stroke();}for(const z of [-240,-160,-80,0,80,160]){ctx.beginPath();ctx.moveTo(-250,z);ctx.lineTo(z===-80?282:88,z);ctx.stroke();}
     ctx.strokeStyle='#c19f74';ctx.beginPath();ctx.moveTo(115,108);ctx.lineTo(166,108);ctx.stroke();
     ctx.fillStyle='#254e55';this.world.chunks.forEach(c=>c.buildings.forEach(b=>ctx.fillRect(b.x-b.w/2,b.z-b.d/2,b.w,b.d)));
-    for(const [x,z] of [[80,103],[143,119]]){ctx.fillStyle='#ffcc85';ctx.beginPath();ctx.arc(x,z,5,0,Math.PI*2);ctx.fill();}ctx.restore();ctx.save();ctx.translate(140,140);ctx.rotate(-this.follow.yaw);ctx.fillStyle='#fff';ctx.beginPath();ctx.moveTo(0,-9);ctx.lineTo(6,6);ctx.lineTo(0,3);ctx.lineTo(-6,6);ctx.closePath();ctx.fill();ctx.restore();
+    for(const {x,z} of [this.activity.car.position,this.activity.boat.position]){ctx.fillStyle='#ffcc85';ctx.beginPath();ctx.arc(x,z,5,0,Math.PI*2);ctx.fill();}ctx.restore();ctx.save();ctx.translate(140,140);ctx.rotate(-this.follow.yaw);ctx.fillStyle='#fff';ctx.beginPath();ctx.moveTo(0,-9);ctx.lineTo(6,6);ctx.lineTo(0,3);ctx.lineTo(-6,6);ctx.closePath();ctx.fill();ctx.restore();
   }
-  snapshot(){return {state:this.state,backend:this.renderer.backend,position:(this.activity.position||this.player.position).toArray(),mode:this.activity.active?.kind||'foot',visited:[...this.visited],settings:{...this.settings},fps:Math.round(1000/this.frameMs),resident:this.chunks.resident,detailed:this.chunks.detailed,sunVisible:this.environment.sun.visible,moonVisible:this.environment.moon.visible,wetness:this.environment.wetness};}
+  snapshot(){return {state:this.state,backend:this.renderer.backend,position:(this.activity.position||this.player.position).toArray(),mode:this.activity.active?.kind||'foot',visited:[...this.visited],settings:{...this.settings},fps:Math.round(1000/this.frameMs),resident:this.chunks.resident,detailed:this.chunks.detailed,sunVisible:this.environment.sun.visible,moonVisible:this.environment.moon.visible,wetness:this.environment.wetness,activeChunks:this.chunks.active,pendingChunks:this.chunks.pending,chunkGroups:this.world.chunks.filter(c=>c.group!==null).length,visibleChunks:this.world.chunks.filter(c=>c.group?.visible).length,skyIndependent:this.environment.skyRoot.parent===this.scene,skyCameraDistance:this.environment.skyRoot.position.distanceTo(this.camera.position),sunDistance:this.environment.sun.position.length(),farPlane:this.camera.far,car:this.activity.car.position.toArray(),boat:this.activity.boat.position.toArray(),traffic:this.activity.traffic.filter(o=>o.visible).length,pedestrians:this.activity.pedestrians.filter(o=>o.visible).length,camera:this.camera.position.toArray(),rain:this.environment.rain.visible};}
 }
