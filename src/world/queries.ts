@@ -21,7 +21,25 @@ export interface Surface extends Footprint {
 }
 export const BRIDGE: Surface = { x: 186, z: -80, w: 236, d: 17, y: 3.48, depth: .65, kind: 'bridge', axis: 'x' };
 export const ROADS: Surface[] = [
-  ...ROAD_XS.map(x => ({ x, z: -40, w: 20, d: 424, y: 2.68, depth: .18, axis: 'z' as const, kind: 'road' as const })),
+  ...ROAD_XS.flatMap(x => {
+    const base = { x, z: -40, w: 20, d: 424, y: 2.68, depth: .18, axis: 'z' as const, kind: 'road' as const };
+    if (Math.abs(x - BRIDGE.x) > BRIDGE.w / 2) return [base];
+    // x=80 is the city grid's easternmost north–south street, and it falls
+    // inside the bridge's x-span [68, 304]. This street used to run its
+    // full z-length straight through the bridge's z-band at full road
+    // height, with no clearance from the bridge deck/railings above it —
+    // visually the bridge appearing to block/cross the street the player is
+    // standing on. There's no case here for an over/underpass (the bridge
+    // ramp is right at the crossing point and there's no clearance to dig
+    // a passage under it), so the street is split into its north and south
+    // segments around the bridge's footprint instead of driving through it.
+    const zMin = base.z - base.d / 2, zMax = base.z + base.d / 2;
+    const gapMin = BRIDGE.z - BRIDGE.d / 2, gapMax = BRIDGE.z + BRIDGE.d / 2;
+    return [
+      { ...base, z: (zMin + gapMin) / 2, d: gapMin - zMin },
+      { ...base, z: (gapMax + zMax) / 2, d: zMax - gapMax },
+    ];
+  }),
   ...ROAD_ZS.map(z => {
     const base = { x: -78, z, w: 344, d: 20, y: 2.68, depth: .18, axis: 'x' as const, kind: 'road' as const };
     if (z !== BRIDGE.z) return base;
