@@ -19,11 +19,24 @@ export interface Surface extends Footprint {
   depth: number;
   axis?: 'x' | 'z';
 }
+export const BRIDGE: Surface = { x: 186, z: -80, w: 236, d: 17, y: 3.48, depth: .65, kind: 'bridge', axis: 'x' };
 export const ROADS: Surface[] = [
   ...ROAD_XS.map(x => ({ x, z: -40, w: 20, d: 424, y: 2.68, depth: .18, axis: 'z' as const, kind: 'road' as const })),
-  ...ROAD_ZS.map(z => ({ x: -78, z, w: 344, d: 20, y: 2.68, depth: .18, axis: 'x' as const, kind: 'road' as const })),
+  ...ROAD_ZS.map(z => {
+    const base = { x: -78, z, w: 344, d: 20, y: 2.68, depth: .18, axis: 'x' as const, kind: 'road' as const };
+    if (z !== BRIDGE.z) return base;
+    // This corridor feeds straight into the bridge's approach ramp (see the
+    // ramp math in surfaceHeight below, which starts exactly at the
+    // bridge's left edge). The flat road deck and the ramping bridge deck
+    // used to both cover x in [bridge-left-edge, 94], producing two
+    // overlapping/near-coplanar surfaces there — visually a bridge railing
+    // cutting across the road. Stop the flat road deck at the bridge's
+    // edge so only the bridge's own ramp occupies that stretch.
+    const leftEdge = base.x - base.w / 2, rampStart = BRIDGE.x - BRIDGE.w / 2;
+    const w = rampStart - leftEdge;
+    return { ...base, x: leftEdge + w / 2, w };
+  }),
 ];
-export const BRIDGE: Surface = { x: 186, z: -80, w: 236, d: 17, y: 3.48, depth: .65, kind: 'bridge', axis: 'x' };
 export const DOCKS: Surface[] = [
   { x: 135, z: 108, w: 66, d: 5.8, y: 2.5, depth: .55, kind: 'dock' },
   { x: 150.5, z: 114.5, w: 5, d: 41, y: 2.5, depth: .55, kind: 'dock' },
