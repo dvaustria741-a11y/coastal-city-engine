@@ -44,7 +44,22 @@ export class Batch {
   }
   finish() {
     const group = new T.Group();
-    for (const [key, matrices] of this.items) { const [g, m] = key.split(':') as [Geo, Mat]; const mesh = new T.InstancedMesh(geo[g], materials[m], matrices.length); matrices.forEach((matrix, i) => mesh.setMatrixAt(i, matrix)); mesh.castShadow = !['light', 'line', 'glass', 'leaf', 'leafLight'].includes(m); mesh.receiveShadow = true; mesh.computeBoundingSphere(); group.add(mesh); }
+    for (const [key, matrices] of this.items) {
+      const [g, m] = key.split(':') as [Geo, Mat]; const mesh = new T.InstancedMesh(geo[g], materials[m], matrices.length);
+      matrices.forEach((matrix, i) => mesh.setMatrixAt(i, matrix));
+      mesh.castShadow = !['light', 'line', 'glass', 'leaf', 'leafLight'].includes(m); mesh.receiveShadow = true;
+      mesh.computeBoundingSphere();
+      // One InstancedMesh here holds every building's glass/etc for a whole
+      // chunk, so its auto bounding sphere spans the entire chunk footprint.
+      // Chunk-level distance/residency (ChunkManager) already gates whether
+      // this group is loaded and visible at all, so a second, per-mesh
+      // frustum test is redundant and was the cause of glass/windows
+      // vanishing when the camera got close to (and past) the edge of that
+      // shared bounding sphere while still looking at the building. Rely on
+      // the chunk system for culling and skip per-mesh frustum culling here.
+      mesh.frustumCulled = false;
+      group.add(mesh);
+    }
     return group;
   }
 }
