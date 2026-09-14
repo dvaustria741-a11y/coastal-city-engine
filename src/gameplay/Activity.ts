@@ -8,7 +8,7 @@ interface Entity { model:T.LOD; position:T.Vector3; yaw:number; speed:number; ki
 function lodModel(kind:'car'|'boat',mat:Mat='coral') {const lod=new T.LOD();for(let i=0;i<3;i++)lod.addLevel(kind==='car'?makeCar(mat,i):makeBoat(i),[0,65,160][i]);return lod;}
 export class Activity {
   car:Entity;boat:Entity;active:Entity|null=null;traffic:T.LOD[]=[];waterTraffic:T.LOD[]=[];pedestrians:T.Group[]=[];aircraft:T.Group;
-  private elapsed=0;private trafficProgress:number[]=[];private wakes:T.Mesh[]=[];speed=0;
+  private elapsed=0;trafficProgress:number[]=[];private wakes:T.Mesh[]=[];speed=0;
   constructor(private scene:T.Scene,private collision:CollisionWorld) {
     this.car={model:lodModel('car'),position:new T.Vector3(83,groundHeight(83,103),103),yaw:0,speed:0,kind:'car'};
     this.boat={model:lodModel('boat'),position:new T.Vector3(BOAT_BERTH.x,WATER_LEVEL,BOAT_BERTH.z),yaw:BOAT_BERTH.yaw,speed:0,kind:'boat'};
@@ -67,7 +67,17 @@ export class Activity {
       if(!stop&&!headway&&!nearPlayer)this.trafficProgress[i]+=dt*9;
       const p=this.trafficProgress[i]%960;
       if(p<320){car.position.set(83,2.75,160-p);car.rotation.y=0;}else if(p<480){car.position.set(83-(p-320),2.75,-163);car.rotation.y=Math.PI/2;}else if(p<800){car.position.set(-83,2.75,-160+p-480);car.rotation.y=Math.PI;}else{car.position.set(-80+p-800,2.75,163);car.rotation.y=-Math.PI/2;}
-      car.position.y=groundHeight(car.position.x,car.position.z);
+      // These cars drive a fixed street-level loop and are never meant to
+      // climb onto the elevated bridge deck at all — but their x≈83 lane
+      // does pass straight through the bridge's z-band (via the x=80
+      // underpass). groundHeight's default (no reference) always returns
+      // the tallest surface at a point, which up there is the bridge deck,
+      // not the street beneath it — so without a reference these cars got
+      // lifted onto the deck exactly where the player, using a reference,
+      // correctly stayed on the road. A fixed street-height reference (this
+      // loop never has a legitimate reason to be anywhere else) keeps them
+      // on the underpass the same way the player's own height reference does.
+      car.position.y=groundHeight(car.position.x,car.position.z,2.75);
       car.update(camera);
     }
     for(let i=0;i<this.waterTraffic.length;i++){const b=this.waterTraffic[i];b.visible=i<Math.max(2,Math.floor(population/4));this.wakes[i].visible=b.visible;if(!b.visible)continue;const a=this.elapsed*.022+i*Math.PI/3,x=300+Math.cos(a)*125,z=185+Math.sin(a)*37;b.position.set(x,.2+Math.sin(this.elapsed+i)*.13,z);b.rotation.set(Math.sin(this.elapsed+i)*.016,Math.atan2(Math.sin(a)*125,-Math.cos(a)*37),Math.sin(this.elapsed*.8+i)*.025);b.update(camera);this.wakes[i].position.set(x+Math.sin(b.rotation.y)*7,.24,z+Math.cos(b.rotation.y)*7);this.wakes[i].rotation.z=-b.rotation.y;}

@@ -145,6 +145,17 @@ describe('existing player and boat gameplay', () => {
     expect(world.collision.walkable(player.position.x, player.position.z, .6)).toBe(true);
     expect(onDock(player.position.x, player.position.z)).toBe(true);
   });
+  it('keeps looping street traffic on the underpass instead of lifting it onto the bridge deck', () => {
+    // These cars follow a fixed street-level patrol whose x≈83 lane happens
+    // to run straight through the bridge's z-band via the x=80 underpass —
+    // they should never end up on the elevated deck. p=240 in the loop's
+    // first leg puts the car at (83, -80), squarely under it.
+    const activity = new Activity(scene, world.collision);
+    activity.trafficProgress[0] = 240;
+    activity.update(1 / 60, { ...defaults(), quality: 'Ultra' }, new T.Vector3(0, 0, 500), new T.PerspectiveCamera());
+    expect(activity.traffic[0].position.z).toBeCloseTo(-80, 1);
+    expect(activity.traffic[0].position.y).toBeLessThan(4); // street level (~2.68), not partway up the ~7.2-high ramp at this x
+  });
   it('will not drive a hull through a thin dock even with a large frame delta', () => {
     const activity = new Activity(scene, world.collision); activity.active = activity.boat; activity.boat.speed = -15;
     activity.drive(1, input(0, -1));
