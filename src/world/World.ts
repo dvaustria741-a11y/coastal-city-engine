@@ -173,9 +173,14 @@ export class World {
         }
       }
     }
-    for(const vertical of ROADS.filter(r=>r.axis==='z'))for(const horizontal of ROADS.filter(r=>r.axis==='x'))
+    // Splitting an arterial around the bridge crossing (see ROADS) leaves
+    // some vertical/horizontal pairs that no longer actually meet; only
+    // fill a corner where both segments really cover that intersection.
+    for(const vertical of ROADS.filter(r=>r.axis==='z'))for(const horizontal of ROADS.filter(r=>r.axis==='x')){
+      if (!contains(vertical, vertical.x, horizontal.z) || !contains(horizontal, vertical.x, horizontal.z)) continue;
       for(const dx of [-8.25,8.25])for(const dz of [-8.25,8.25])
         deck(b,{...vertical,x:vertical.x+dx,z:horizontal.z+dz,w:3.5,d:3.5},'concrete');
+    }
     this.root.add(b.finish());
   }
 
