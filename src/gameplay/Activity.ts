@@ -53,7 +53,7 @@ export class Activity {
       }
       e.position.y=WATER_LEVEL+Math.sin(this.elapsed*.8+e.position.x*.09)*.18;
     }
-    else {const before=e.position.clone();this.collision.move(e.position,dx,dz,1.25);if(before.distanceTo(e.position)<Math.hypot(dx,dz)*.4)e.speed*=.4;e.position.y=groundHeight(e.position.x,e.position.z)+.1;}
+    else {const before=e.position.clone();this.collision.move(e.position,dx,dz,1.25);if(before.distanceTo(e.position)<Math.hypot(dx,dz)*.4)e.speed*=.4;e.position.y=groundHeight(e.position.x,e.position.z,before.y)+.1;}
     e.model.position.copy(e.position);e.model.rotation.y=e.yaw;this.speed=Math.abs(e.speed)*3.6;
   }
   update(dt:number,settings:Settings,focus:T.Vector3,camera:T.Camera) {

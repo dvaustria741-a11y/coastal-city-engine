@@ -33,17 +33,19 @@ export interface Surface extends Footprint {
 // ramp. The bridge's total footprint (w) grows accordingly; its center and
 // z-band are unchanged, so nothing on the marina/island side needs to move.
 //
-// Note on x=80 specifically: this engine's navigation/height queries
-// (groundHeight, contains) use a single height value per (x, z) — whichever
-// registered Surface at that point is tallest wins. The bridge's footprint
-// spans its full x-range at its own z-band, so any (x, z) with x in that
-// range and z inside the bridge's z-band is, by definition, "on the
-// bridge" as far as this system can represent — there's no way to encode a
-// second, independent surface stacked underneath at the same (x, z) without
-// a second, competing height/collision system. x=80 falls inside that
-// range regardless of the exact footprint size, so it keeps the gap/split
-// below rather than silently reporting the deck's height as if a
-// pedestrian on the street had teleported up onto the bridge.
+// Note on x=80 specifically: an (x, z) point under the flat central span
+// is covered by two real, physically-stacked surfaces — the elevated deck
+// and the street running underneath it — not one. groundHeight can't just
+// always take the taller of the two (that's what made the deck read as
+// "blocking" the street instead of passing over it), so it now takes an
+// optional reference height and, when given one, returns whichever
+// candidate surface is closest to it instead of the tallest. A caller
+// tracking a specific object's continuous height (the player, a car) that
+// resolves to it stays on whichever layer it's actually on. See
+// groundHeight below and CollisionWorld.move/walkable, which supply the
+// object's current height as that reference. Callers that don't care about
+// layering (mesh grading, prop placement) omit the reference and keep the
+// old "tallest wins" behaviour.
 export const BRIDGE: Surface = { x: 186, z: -80, w: 316, d: 17, y: 8.6, depth: .65, kind: 'bridge', axis: 'x' };
 // Ramp length, in world units, on each side of the flat central deck.
 // Authoritative for surfaceHeight's ramp math below AND for anything that
@@ -54,19 +56,19 @@ export const ROADS: Surface[] = [
     const base = { x, z: -40, w: 20, d: 424, y: 2.68, depth: .18, axis: 'z' as const, kind: 'road' as const };
     if (Math.abs(x - BRIDGE.x) > BRIDGE.w / 2) return [base];
     // x=80 is the city grid's easternmost north–south street, and it falls
-    // inside the bridge's x-span [68, 304] — see the note above BRIDGE for
-    // why this single-height engine can't stack a real road under the deck
-    // at the same (x, z). Split the street into its north and south
-    // segments around the bridge's own footprint; both segments still meet
-    // the regular perpendicular streets (z=-160 and z=0) a short distance
-    // away, so this is a clean T-junction on the existing grid, not a dead
-    // end, and nothing here reads as the bridge "blocking" a road that's
-    // actually present at that point.
+    // inside the bridge's x-span. It's built as three segments: the north
+    // and south approaches, plus a third at ground level directly under
+    // the deck — a real underpass, not a gap. That third segment
+    // deliberately occupies the same (x, z) as BRIDGE; groundHeight's
+    // reference-height mode (see the note above BRIDGE and groundHeight
+    // below) is what lets a pedestrian standing on it resolve to this low
+    // road instead of always snapping up to the taller deck above.
     const zMin = base.z - base.d / 2, zMax = base.z + base.d / 2;
     const gapMin = BRIDGE.z - BRIDGE.d / 2, gapMax = BRIDGE.z + BRIDGE.d / 2;
     return [
       { ...base, z: (zMin + gapMin) / 2, d: gapMin - zMin },
       { ...base, z: (gapMax + zMax) / 2, d: zMax - gapMax },
+      { ...base, z: BRIDGE.z, d: gapMax - gapMin },
     ];
   }),
   ...ROAD_ZS.map(z => {
@@ -185,9 +187,18 @@ export function isLand(x: number, z: number) { return terrainHeight(x, z) >= WAT
 export function isBeach(x: number, z: number) { return isLand(x, z) && edgeSDF(x, z) < 18; }
 
 // Navigation ground height. Returns <0 for impassable water.
-export function groundHeight(x: number, z: number): number {
-  let h = terrainHeight(x, z);
-  for (const s of SURFACES) if (contains(s, x, z)) h = Math.max(h, surfaceHeight(s, x, z));
+// ref is a layering hint, not a new source of truth: omit it (mesh
+// grading, prop placement, anything that just wants "the ground") and this
+// keeps returning the tallest candidate surface, exactly as before. Pass
+// the caller's own current height when the point could be covered by two
+// physically-stacked surfaces (the bridge deck over the street beneath
+// it) and the caller needs to stay on the one it's actually standing on.
+export function groundHeight(x: number, z: number, ref?: number): number {
+  const candidates = [terrainHeight(x, z)];
+  for (const s of SURFACES) if (contains(s, x, z)) candidates.push(surfaceHeight(s, x, z));
+  const h = ref === undefined
+    ? Math.max(...candidates)
+    : candidates.reduce((best, c) => Math.abs(c - ref) < Math.abs(best - ref) ? c : best);
   return h < WATER_LEVEL + WAVE_HEIGHT + .05 ? -2 : h;
 }
 // For a swimming player, not a boat hull. navigableWater's -.65 depth
@@ -286,18 +297,32 @@ export class CollisionWorld {
     const b = { x, z, w: r * 2, d: r * 2 };
     return this.hash.nearby(b).some(c => y + height > (c.y ?? 2.5) + .02 && y < (c.y ?? 2.5) + c.h - .02 && overlaps(b, c));
   }
-  walkable(x: number, z: number, r = .45) {
-    const h = groundHeight(x, z);
+  walkable(x: number, z: number, r = .45, ref?: number) {
+    const h = groundHeight(x, z, ref);
     return h > 0 && !this.blocked(x, z, r, h) && sampleFootprint({ x, z, w: r * 2, d: r * 2 }, (px, pz) => {
-      const edge = groundHeight(px, pz); return edge > 0 && Math.abs(edge - h) < .5;
+      // Sample the footprint edges against the same layer as the center
+      // (h), not groundHeight's default tallest-wins reading — otherwise a
+      // point on the low underpass road right at the edge of the bridge's
+      // footprint would compare itself against the deck above it instead
+      // of the road it's actually standing on, and read as unwalkable.
+      const edge = groundHeight(px, pz, h); return edge > 0 && Math.abs(edge - h) < .5;
     });
   }
   move(position: { x: number; z: number; y: number }, dx: number, dz: number, r = .45) {
     const steps = Math.max(1, Math.ceil(Math.hypot(dx, dz) / .3));
     for (let i = 0; i < steps; i++) {
       const moveAxis = (x: number, z: number) => {
-        const current = groundHeight(position.x, position.z), next = groundHeight(x, z);
-        if (next - current > .45 || current - next > .7 || !this.walkable(x, z, r) || this.blocked(x, z, r, Math.max(position.y, next))) return;
+        // Resolve "current" against the mover's actual height, not just
+        // whichever surface happens to be tallest at its (x, z) — that's
+        // what let a two-layer point (the street under the bridge deck)
+        // silently read as the deck's height even while standing on the
+        // road, and made the two layers impossible to move between
+        // independently. next then resolves against current so the search
+        // stays on the same layer step to step instead of re-snapping to
+        // the tallest surface every frame.
+        const current = groundHeight(position.x, position.z, position.y);
+        const next = groundHeight(x, z, current);
+        if (next - current > .45 || current - next > .7 || !this.walkable(x, z, r, current) || this.blocked(x, z, r, Math.max(position.y, next))) return;
         position.x = x; position.z = z;
       };
       moveAxis(position.x + dx / steps, position.z);

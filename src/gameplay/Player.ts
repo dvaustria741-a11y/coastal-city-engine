@@ -40,9 +40,14 @@ export class Player {
       if(this.collision.walkable(this.position.x,this.position.z)){this.swimming=false;this.position.y=ground;}
       else this.position.y=T.MathUtils.damp(this.position.y,WATER_LEVEL-SWIM_DEPTH,6,dt);
     } else {
-      const beforeX=this.position.x,beforeZ=this.position.z;
+      const beforeX=this.position.x,beforeZ=this.position.z,beforeY=this.position.y;
       this.collision.move(this.position,dx,dz);
-      const ground=groundHeight(this.position.x,this.position.z);
+      // Pass the player's own (pre-move) height as the layering reference —
+      // move() above already resolved which of the bridge deck or the
+      // street beneath it the player is standing on; recomputing ground
+      // height with the default tallest-wins reading here would undo that
+      // and snap a player walking under the bridge back up onto the deck.
+      const ground=groundHeight(this.position.x,this.position.z,beforeY);
       const moved=Math.hypot(this.position.x-beforeX,this.position.z-beforeZ);
       // Land movement stops the player right at the shoreline. walkable()
       // requires the player's whole footprint (not just its center) to be
@@ -79,6 +84,10 @@ export class FollowCamera {
     this.yaw-=input.lookX*.004*sensitivity;this.pitch=T.MathUtils.clamp(this.pitch+input.lookY*.003*sensitivity,-.05,1.05);this.distance=T.MathUtils.clamp(this.distance+input.zoom,5,24);input.lookX=0;input.lookY=0;input.zoom=0;
     const focus=target.clone().add(new T.Vector3(0,driving?2.1:1.65,0)),d=this.distance+(driving?5:0);const dir=new T.Vector3(Math.sin(this.yaw)*Math.cos(this.pitch),Math.sin(this.pitch),Math.cos(this.yaw)*Math.cos(this.pitch));
     let length=d;for(let t=.7;t<d;t+=.45){const p=focus.clone().addScaledVector(dir,t);if(this.collision.blocked(p.x,p.z,.3,p.y)){length=Math.max(.6,t-.5);break;}}
-    const desired=focus.clone().addScaledVector(dir,length);desired.y=Math.max(desired.y,groundHeight(desired.x,desired.z)+.8,.8);this.camera.position.lerp(desired,1-Math.exp(-dt*8));this.camera.lookAt(focus);
+    // Reference the camera's floor clamp to the tracked target's own height
+    // (target.y), not the default tallest-surface reading — otherwise the
+    // camera would clamp to the bridge deck's height while following a
+    // player walking on the street underneath it.
+    const desired=focus.clone().addScaledVector(dir,length);desired.y=Math.max(desired.y,groundHeight(desired.x,desired.z,target.y)+.8,.8);this.camera.position.lerp(desired,1-Math.exp(-dt*8));this.camera.lookAt(focus);
   }
 }

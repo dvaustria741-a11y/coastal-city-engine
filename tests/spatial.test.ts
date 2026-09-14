@@ -163,20 +163,26 @@ describe('existing player and boat gameplay', () => {
     walk(p, 185, -80); walk(p, 347, -80);
     expect(p.position.y).toBeCloseTo(groundHeight(p.position.x, p.position.z), 2);
   });
-  it('splits the x=80 street around the bridge as a clean T-junction, not a dead end', () => {
-    // This engine's ground query is one height per (x, z); the bridge's
-    // footprint fully covers x=80 within its own z-band, so a real stacked
-    // overpass can't be represented there (see the comment above BRIDGE in
-    // queries.ts). The street is walkable right up to the bridge's
-    // footprint on both sides and reconnects at the next cross streets
-    // (z=-160, z=0) a short distance away — it doesn't just vanish.
-    for (const z of [-140, -110, -95]) expect(world.collision.walkable(80, z), `z=${z}`).toBe(true);
-    for (const z of [-65, -50, -20]) expect(world.collision.walkable(80, z), `z=${z}`).toBe(true);
+  it('carries the x=80 street straight through as a real underpass beneath the bridge deck', () => {
+    // The street under the bridge deck and the deck itself are two
+    // physically-stacked surfaces at the same (x, z); groundHeight's
+    // reference-height mode (queries.ts) resolves each query to whichever
+    // one the caller is actually on, so a pedestrian on the street stays
+    // on it instead of snapping onto the deck above. Confirm the street is
+    // walkable at street level all the way through the bridge's z-band...
+    for (const z of [-140, -110, -95, -80, -65, -50, -20]) {
+      expect(world.collision.walkable(80, z), `z=${z}`).toBe(true);
+      expect(groundHeight(80, z, 2.68), `z=${z}`).toBeLessThan(BRIDGE.y - 1);
+    }
     expect(world.collision.walkable(80, -160), 'meets the z=-160 cross street').toBe(true);
     expect(world.collision.walkable(80, 0), 'meets the z=0 cross street').toBe(true);
+    // ...and that an actual player can walk straight through it in one
+    // continuous route, north to south, without detouring via a cross
+    // street and without ever being lifted up onto the deck.
     const p = new Player(scene, world.collision); p.position.set(80, groundHeight(80, -140), -140);
-    walk(p, 80, -160); // reaches the cross street the south segment ends near
-    expect(p.position.z).toBeCloseTo(-160, 0);
+    walk(p, 80, -20);
+    expect(p.position.z).toBeCloseTo(-20, 0);
+    expect(p.position.y).toBeLessThan(BRIDGE.y - 1);
   });
   it('gives the bridge real clearance above its own collinear approach road and the promenade, not a near-collision', () => {
     // The west approach road (z=-80, up to the bridge's own left edge) and
