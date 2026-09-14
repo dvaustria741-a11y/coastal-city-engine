@@ -244,12 +244,20 @@ export class World {
         b.beam('white', new T.Vector3(tx, 49 - j * .6, tz), new T.Vector3(ax, surfaceHeight(BRIDGE, ax, tz) + .3, tz), .04);
       }
     }
-    // Railings along both edges
-    for (const tz of [-88, -72]) for (let x = 70; x < 302; x += 4) {
-      const y = surfaceHeight(BRIDGE, x, tz);
-      b.add('box', 'white', x, y + 1.2, tz, 4, .1, .1);
-      b.add('box', 'concrete', x, y + .6, tz, .1, 1.2, .1);
-      this.collision.add({ x, z: tz, w: 4, d: .15, y, h: 1.3 });
+    // Railings along both edges. Each segment reads its endpoints' heights
+    // from the exact same surfaceHeight() profile the deck itself uses, and
+    // tilts (rz) to match the local slope the same way deck()'s ramp
+    // segments already do — so the railing rises/descends/levels off with
+    // the road instead of staying flat while the deck slopes underneath it
+    // (the "handlebar" look), and it can't drift out of sync with the deck
+    // if the ramp length or height ever changes again.
+    const left = BRIDGE.x - BRIDGE.w / 2, right = BRIDGE.x + BRIDGE.w / 2;
+    for (const tz of [-88, -72]) for (let x = left + 2; x < right - 2; x += 4) {
+      const lx = x - 2, rx = x + 2, a = surfaceHeight(BRIDGE, lx, tz), c = surfaceHeight(BRIDGE, rx, tz);
+      const midY = (a + c) / 2, length = Math.hypot(4, c - a), tilt = Math.atan2(c - a, 4);
+      b.add('box', 'white', x, midY + 1.2, tz, length, .1, .1, 0, tilt);
+      b.add('box', 'concrete', x, midY + .6, tz, .1, 1.2, .1);
+      this.collision.add({ x, z: tz, w: 4, d: .15, y: midY, h: 1.3 });
     }
     this.root.add(b.finish());
   }

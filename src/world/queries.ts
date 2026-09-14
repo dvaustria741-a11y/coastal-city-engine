@@ -21,24 +21,34 @@ export interface Surface extends Footprint {
 }
 // The deck used to sit only .8 units above the road grade (y 3.48 vs the
 // road's y 2.68), which is why it read as the bridge "blocking" everything
-// near it rather than passing over it — there was no real clearance
-// anywhere along it, including its own collinear approach road (see the
-// z=-80 entry in ROADS below) and the promenade it runs past. Raising the
-// whole deck gives a genuine ~3m clearance above road grade (deck bottom
-// 6.4-.65=5.75 vs road top 2.68).
+// near it rather than passing over it. It was then raised to y=6.4 with a
+// 38-unit ramp on each side — enough clearance at the flat central span,
+// but the ramps themselves stayed short/steep near their abutments, which
+// is where the deck reads as "too close to the lower road" and the
+// approach as abrupt. This round: raise the deck further (8.6 — deck
+// bottom 8.6-.65=7.95 vs road top 2.68, ~5.3m clearance, comparable to a
+// real highway overpass) AND roughly double each ramp's length (38→80
+// units) so the same total rise is spread over more distance — a gentler,
+// more gradual climb rather than just a taller version of the same short
+// ramp. The bridge's total footprint (w) grows accordingly; its center and
+// z-band are unchanged, so nothing on the marina/island side needs to move.
 //
 // Note on x=80 specifically: this engine's navigation/height queries
 // (groundHeight, contains) use a single height value per (x, z) — whichever
 // registered Surface at that point is tallest wins. The bridge's footprint
-// spans the full x=[68,304] range at its own z-band, so any (x, z) with x
-// in that range and z inside the bridge's z-band is, by definition, "on the
+// spans its full x-range at its own z-band, so any (x, z) with x in that
+// range and z inside the bridge's z-band is, by definition, "on the
 // bridge" as far as this system can represent — there's no way to encode a
 // second, independent surface stacked underneath at the same (x, z) without
-// a second, competing height/collision system. Raising BRIDGE.y doesn't
-// change that; it only changes which height wins there, so x=80 keeps the
-// gap/split below rather than silently reporting the deck's height as if a
+// a second, competing height/collision system. x=80 falls inside that
+// range regardless of the exact footprint size, so it keeps the gap/split
+// below rather than silently reporting the deck's height as if a
 // pedestrian on the street had teleported up onto the bridge.
-export const BRIDGE: Surface = { x: 186, z: -80, w: 236, d: 17, y: 6.4, depth: .65, kind: 'bridge', axis: 'x' };
+export const BRIDGE: Surface = { x: 186, z: -80, w: 316, d: 17, y: 8.6, depth: .65, kind: 'bridge', axis: 'x' };
+// Ramp length, in world units, on each side of the flat central deck.
+// Authoritative for surfaceHeight's ramp math below AND for anything that
+// needs to know where the flat section starts/ends (railings, supports).
+export const BRIDGE_RAMP = 80;
 export const ROADS: Surface[] = [
   ...ROAD_XS.flatMap(x => {
     const base = { x, z: -40, w: 20, d: 424, y: 2.68, depth: .18, axis: 'z' as const, kind: 'road' as const };
@@ -129,8 +139,15 @@ function terrainVertex(x: number, z: number): number {
   // field itself. The falloff leaves hills between finite road corridors.
   let grading = 0;
   for (const r of ROADS) grading = Math.max(grading, 1 - ss(2, 14, distanceTo(r, x, z)));
-  for (const pad of [PROMENADE, PLAZA, WHEEL_SITE, HARBOR_SITE]) grading = Math.max(grading, 1 - ss(2, 9, distanceTo(pad, x, z)));
-  if (island(x, z) && Math.abs(z + 80) < 18 && x > 262 && x < 309) grading = Math.max(grading, 1 - ss(9, 18, Math.abs(z + 80)));
+  // Only the bridge's two ground-level abutments (where its ramps actually
+  // meet the terrain) get graded, using the same narrow pad-style falloff
+  // as the other landmarks below — not the bridge's whole elevated span.
+  // An earlier version graded the entire span like a road bed, which also
+  // flattened the open water/marina beneath the middle of the bridge and
+  // let a boat "exit" onto newly-walkable land directly under the deck.
+  const bridgeLeft = BRIDGE.x - BRIDGE.w / 2, bridgeRight = BRIDGE.x + BRIDGE.w / 2;
+  const abutments = [{ x: bridgeLeft, z: BRIDGE.z, w: 4, d: BRIDGE.d }, { x: bridgeRight, z: BRIDGE.z, w: 4, d: BRIDGE.d }];
+  for (const pad of [PROMENADE, PLAZA, WHEEL_SITE, HARBOR_SITE, ...abutments]) grading = Math.max(grading, 1 - ss(2, 9, distanceTo(pad, x, z)));
   return lp(h, 2.5, grading);
 }
 
@@ -144,14 +161,24 @@ export function terrainHeight(x: number, z: number): number {
   if (u + v <= 1) return terrainVertex(x0, z0) * (1 - u - v) + b * u + c * v;
   return terrainVertex(x0 + TERRAIN_STEP, z0 + TERRAIN_STEP) * (u + v - 1) + b * (1 - v) + c * (1 - u);
 }
+// roadHeightAt(x) for the bridge — the single authoritative source for the
+// deck's own elevation. Every attached element (deck geometry, its road
+// overlay, sidewalks, railings, collision) reads through this same
+// function rather than computing or hardcoding its own Y, so they can't
+// drift out of sync with each other or with BRIDGE_RAMP/BRIDGE.y.
 export function surfaceHeight(s: Surface, x: number, _z: number): number {
   if (s.kind !== 'bridge') return s.y;
-  // Ramp span widened (was 68→94 / 278→304, 26 units) so the bigger rise to
-  // the raised deck still reads as a gentle approach, not a steeper jump.
-  // Both ramps stay inside the deck's own [68, 304] footprint, so they still
-  // connect smoothly to the flat road grade at the bridge's outer edges with
-  // no floating/disconnected road surface.
-  return x < 106 ? lp(2.68, s.y, ss(68, 106, x)) : lp(s.y, 2.5, ss(266, 304, x));
+  const left = s.x - s.w / 2, right = s.x + s.w / 2;
+  if (x < left + BRIDGE_RAMP) return lp(2.68, s.y, ss(left, left + BRIDGE_RAMP, x));
+  if (x > right - BRIDGE_RAMP) return lp(s.y, 2.5, ss(right - BRIDGE_RAMP, right, x));
+  return s.y;
+}
+// The slope (dy/dx) of the same profile above, at x. Used to rotate
+// railings/guardrails (and anything else attached to the deck) to match
+// the road's actual incline instead of staying flat while the deck slopes
+// under them — the "handlebar" look comes from exactly that mismatch.
+export function surfaceSlope(s: Surface, x: number, z: number, eps = .5) {
+  return (surfaceHeight(s, x + eps, z) - surfaceHeight(s, x - eps, z)) / (2 * eps);
 }
 export function isWater(x: number, z: number) { return terrainHeight(x, z) < WATER_LEVEL; }
 export function isLand(x: number, z: number) { return terrainHeight(x, z) >= WATER_LEVEL + WAVE_HEIGHT + .05; }

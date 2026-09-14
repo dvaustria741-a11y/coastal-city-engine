@@ -9,7 +9,7 @@ import { disposeBatch } from '../src/assets/models';
 import type { Input } from '../src/input/Input';
 import {
   terrainHeight, groundHeight, isLand, isWater, navigableWater, swimmable, onDock, CollisionWorld,
-  SpatialReservations, sampleFootprint, overlaps, ROADS, DOCKS, BRIDGE, SURFACES, BOAT_BERTH,
+  SpatialReservations, sampleFootprint, overlaps, ROADS, DOCKS, BRIDGE, BRIDGE_RAMP, SURFACES, BOAT_BERTH,
   PLAYER_SPAWN, surfaceHeight, WATER_LEVEL,
 } from '../src/world/queries';
 
@@ -63,7 +63,7 @@ describe('one terrain and physical surface model', () => {
     expect(world.collision.boatFits(BOAT_BERTH.x, BOAT_BERTH.z, BOAT_BERTH.yaw)).toBe(true);
   });
   it('joins bridge ramps without a step at either abutment', () => {
-    for (const x of [68, 304]) expect(Math.abs(groundHeight(x - .1, -80) - groundHeight(x + .1, -80))).toBeLessThan(.05);
+    for (const x of [BRIDGE.x - BRIDGE.w / 2, BRIDGE.x + BRIDGE.w / 2]) expect(Math.abs(groundHeight(x - .1, -80) - groundHeight(x + .1, -80))).toBeLessThan(.05);
     expect(surfaceHeight(BRIDGE, 180, -80)).toBe(BRIDGE.y);
   });
 });
@@ -159,8 +159,8 @@ describe('existing player and boat gameplay', () => {
     expect(c.findExit(180, -68, 0, 'boat')).toBeNull();
   });
   it('walks the bridge end-to-end using the same collision world', () => {
-    const p = new Player(scene, world.collision); p.position.set(65, groundHeight(65, -80), -80);
-    walk(p, 185, -80); walk(p, 307, -80);
+    const p = new Player(scene, world.collision); p.position.set(20, groundHeight(20, -80), -80);
+    walk(p, 185, -80); walk(p, 347, -80);
     expect(p.position.y).toBeCloseTo(groundHeight(p.position.x, p.position.z), 2);
   });
   it('splits the x=80 street around the bridge as a clean T-junction, not a dead end', () => {
@@ -183,9 +183,25 @@ describe('existing player and boat gameplay', () => {
     // the waterfront promenade both run right alongside the raised deck —
     // this is where "0.8 units of clearance" read as the bridge sitting on
     // top of the road. Both should now clear the deck by a believable
-    // amount, not graze it.
-    expect(BRIDGE.y - groundHeight(50, -80)).toBeGreaterThan(3);
+    // amount, not graze it. x=0 stays outside the bridge's own (now longer)
+    // footprint, so this measures clearance against genuinely separate
+    // ground, not the bridge's own ramp.
+    expect(BRIDGE.x - BRIDGE.w / 2).toBeGreaterThan(0);
+    expect(BRIDGE.y - groundHeight(0, -80)).toBeGreaterThan(3);
     expect(BRIDGE.y - groundHeight(97.5, 40)).toBeGreaterThan(3);
+  });
+  it('has a long, gradual ramp instead of a short steep one', () => {
+    // Consecutive-sample height deltas along the ramp should stay small and
+    // smooth (no staircase steps), and the ramp should actually use its
+    // full advertised length rather than mostly flattening out early.
+    const left = BRIDGE.x - BRIDGE.w / 2, samples: number[] = [];
+    for (let x = left; x <= left + BRIDGE_RAMP; x += 1) samples.push(surfaceHeight(BRIDGE, x, -80));
+    for (let i = 1; i < samples.length; i++) expect(Math.abs(samples[i] - samples[i - 1]), `step at x=${left + i}`).toBeLessThan(.5);
+    expect(samples[0]).toBeCloseTo(2.68, 1);
+    expect(samples[samples.length - 1]).toBeCloseTo(BRIDGE.y, 1);
+    const midway = surfaceHeight(BRIDGE, left + BRIDGE_RAMP / 2, -80);
+    expect(midway).toBeGreaterThan(3); // genuinely rising partway through, not flat-then-a-cliff
+    expect(midway).toBeLessThan(BRIDGE.y - .5);
   });
 });
 
