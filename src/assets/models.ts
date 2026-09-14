@@ -55,9 +55,11 @@ export function palm(b: Batch, x: number, z: number, height: number, detail: num
   for (let j = 0; j < count; j++) b.add('frond', j % 3 ? 'leaf' : 'leafLight', x+1.8, y+height, z, .85, 1, 1, j / count * Math.PI * 2);
   if (detail === 0) b.add('sphere', 'trunk', x+1.8,y+height-.3,z,.4,.5,.4);
 }
-export interface Building { x: number; z: number; w: number; d: number; h: number; style: number }
+export interface Building { x: number; z: number; w: number; d: number; h: number; style: number; y: number; minY: number }
 export function building(b: Batch, p: Building, detail: number) {
-  const {x,z,w,d,h,style} = p, y = 2.5;
+  const {x,z,w,d,h,style,y,minY} = p;
+  const foundation = Math.max(.1, y - minY + .1);
+  b.add('box', 'concrete', x, y - foundation / 2, z, w + 3, foundation, d + 3);
   const glass: Mat = style % 3 === 0 ? 'blue' : style % 3 === 1 ? 'glass' : 'teal';
   b.add('box','ivory',x,y+2,z,w+3,4,d+3);
   const round = style === 2;

@@ -10,15 +10,17 @@ export class ChunkManager {
     if(this.adaptation>8) {this.adaptation=0;if(this.average>36)this.auto='HIGH';else if(this.average<18)this.auto='LOW';else this.auto='MEDIUM';}
     if(this.timer<.16)return;this.timer=0;
     const radius=residencyRadius(settings.culling,settings.distance,this.auto);
-    const factor=presets[settings.quality].detail * (settings.culling==='HIGH'?.8:1);
+    const factor=presets[settings.quality].detail * settings.distance/400;
     let budget=1;this.resident=0;this.detailed=0;
     const chunks=[...this.world.chunks].sort((a,b)=>Math.hypot(a.x-position.x,a.z-position.z)-Math.hypot(b.x-position.x,b.z-position.z));
     for(const c of chunks) {
       const distance=Math.hypot(c.x-position.x,c.z-position.z);
       const keep=distance<radius+(c.resident?40:0)||distance<100;
       const wanted=keep?chooseLOD(overview?distance*.65:distance,factor,c.detail):2;
-      if(wanted!==c.detail&&budget>0) { const next=this.world.buildChunk(c,wanted); this.world.root.add(next);disposeBatch(c.group);c.group=next;c.detail=wanted;budget--; }
-      c.resident=keep;if(keep)this.resident++;if(c.detail<2)this.detailed++;
+      if(!keep&&c.resident&&budget>0){disposeBatch(c.group);c.resident=false;budget--;}
+      else if(keep&&(!c.resident||wanted!==c.detail)&&budget>0) { const next=this.world.buildChunk(c,wanted); this.world.root.add(next);disposeBatch(c.group);c.group=next;c.detail=wanted;c.resident=true;budget--; }
+      c.group.visible=c.resident&&distance<settings.distance+56;
+      if(c.resident)this.resident++;if(c.resident&&c.detail<2)this.detailed++;
     }
   }
 }
