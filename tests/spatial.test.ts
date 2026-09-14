@@ -8,7 +8,7 @@ import { defaults, residencyRadius, type Settings } from '../src/core/settings';
 import { disposeBatch } from '../src/assets/models';
 import type { Input } from '../src/input/Input';
 import {
-  terrainHeight, groundHeight, isLand, isWater, navigableWater, onDock, CollisionWorld,
+  terrainHeight, groundHeight, isLand, isWater, navigableWater, swimmable, onDock, CollisionWorld,
   SpatialReservations, sampleFootprint, overlaps, ROADS, DOCKS, BRIDGE, SURFACES, BOAT_BERTH,
   PLAYER_SPAWN, surfaceHeight, WATER_LEVEL,
 } from '../src/world/queries';
@@ -64,7 +64,7 @@ describe('one terrain and physical surface model', () => {
   });
   it('joins bridge ramps without a step at either abutment', () => {
     for (const x of [68, 304]) expect(Math.abs(groundHeight(x - .1, -80) - groundHeight(x + .1, -80))).toBeLessThan(.05);
-    expect(surfaceHeight(BRIDGE, 180, -80)).toBe(3.48);
+    expect(surfaceHeight(BRIDGE, 180, -80)).toBe(BRIDGE.y);
   });
 });
 
@@ -162,6 +162,59 @@ describe('existing player and boat gameplay', () => {
     const p = new Player(scene, world.collision); p.position.set(65, groundHeight(65, -80), -80);
     walk(p, 185, -80); walk(p, 307, -80);
     expect(p.position.y).toBeCloseTo(groundHeight(p.position.x, p.position.z), 2);
+  });
+  it('splits the x=80 street around the bridge as a clean T-junction, not a dead end', () => {
+    // This engine's ground query is one height per (x, z); the bridge's
+    // footprint fully covers x=80 within its own z-band, so a real stacked
+    // overpass can't be represented there (see the comment above BRIDGE in
+    // queries.ts). The street is walkable right up to the bridge's
+    // footprint on both sides and reconnects at the next cross streets
+    // (z=-160, z=0) a short distance away — it doesn't just vanish.
+    for (const z of [-140, -110, -95]) expect(world.collision.walkable(80, z), `z=${z}`).toBe(true);
+    for (const z of [-65, -50, -20]) expect(world.collision.walkable(80, z), `z=${z}`).toBe(true);
+    expect(world.collision.walkable(80, -160), 'meets the z=-160 cross street').toBe(true);
+    expect(world.collision.walkable(80, 0), 'meets the z=0 cross street').toBe(true);
+    const p = new Player(scene, world.collision); p.position.set(80, groundHeight(80, -140), -140);
+    walk(p, 80, -160); // reaches the cross street the south segment ends near
+    expect(p.position.z).toBeCloseTo(-160, 0);
+  });
+  it('gives the bridge real clearance above its own collinear approach road and the promenade, not a near-collision', () => {
+    // The west approach road (z=-80, up to the bridge's own left edge) and
+    // the waterfront promenade both run right alongside the raised deck —
+    // this is where "0.8 units of clearance" read as the bridge sitting on
+    // top of the road. Both should now clear the deck by a believable
+    // amount, not graze it.
+    expect(BRIDGE.y - groundHeight(50, -80)).toBeGreaterThan(3);
+    expect(BRIDGE.y - groundHeight(97.5, 40)).toBeGreaterThan(3);
+  });
+});
+
+describe('player water entry and swimming', () => {
+  it('walks from the beach into the water — no invisible shoreline wall — and swims freely', () => {
+    const player = new Player(scene, world.collision);
+    player.position.set(110, groundHeight(110, 180), 180);
+    expect(player.swimming).toBe(false);
+    walk(player, 200, 120); // (200,120) is confirmed open navigable water above
+    expect(player.swimming).toBe(true);
+    expect(swimmable(player.position.x, player.position.z)).toBe(true);
+    expect(player.position.y).toBeLessThan(WATER_LEVEL);
+    const reachedX = player.position.x;
+    walk(player, 260, 90); // swim further out — not stuck right at the entry point
+    expect(player.position.x).toBeGreaterThan(reachedX);
+    expect(player.swimming).toBe(true);
+  });
+  it('exits the water back onto land and resumes normal walking', () => {
+    const player = new Player(scene, world.collision);
+    player.position.set(200, WATER_LEVEL - 1.3, 120); player.swimming = true;
+    walk(player, 110, 180);
+    expect(player.swimming).toBe(false);
+    expect(world.collision.walkable(player.position.x, player.position.z, .6)).toBe(true);
+  });
+  it('does not disturb existing boat boarding near the same waterfront', () => {
+    const player = new Player(scene, world.collision), activity = new Activity(scene, world.collision);
+    player.position.set(150.5, groundHeight(150.5, 120), 120);
+    walk(player, 152.2, 120);
+    expect(activity.nearest(player)?.kind).toBe('boat');
   });
 });
 

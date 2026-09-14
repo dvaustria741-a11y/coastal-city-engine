@@ -19,20 +19,39 @@ export interface Surface extends Footprint {
   depth: number;
   axis?: 'x' | 'z';
 }
-export const BRIDGE: Surface = { x: 186, z: -80, w: 236, d: 17, y: 3.48, depth: .65, kind: 'bridge', axis: 'x' };
+// The deck used to sit only .8 units above the road grade (y 3.48 vs the
+// road's y 2.68), which is why it read as the bridge "blocking" everything
+// near it rather than passing over it — there was no real clearance
+// anywhere along it, including its own collinear approach road (see the
+// z=-80 entry in ROADS below) and the promenade it runs past. Raising the
+// whole deck gives a genuine ~3m clearance above road grade (deck bottom
+// 6.4-.65=5.75 vs road top 2.68).
+//
+// Note on x=80 specifically: this engine's navigation/height queries
+// (groundHeight, contains) use a single height value per (x, z) — whichever
+// registered Surface at that point is tallest wins. The bridge's footprint
+// spans the full x=[68,304] range at its own z-band, so any (x, z) with x
+// in that range and z inside the bridge's z-band is, by definition, "on the
+// bridge" as far as this system can represent — there's no way to encode a
+// second, independent surface stacked underneath at the same (x, z) without
+// a second, competing height/collision system. Raising BRIDGE.y doesn't
+// change that; it only changes which height wins there, so x=80 keeps the
+// gap/split below rather than silently reporting the deck's height as if a
+// pedestrian on the street had teleported up onto the bridge.
+export const BRIDGE: Surface = { x: 186, z: -80, w: 236, d: 17, y: 6.4, depth: .65, kind: 'bridge', axis: 'x' };
 export const ROADS: Surface[] = [
   ...ROAD_XS.flatMap(x => {
     const base = { x, z: -40, w: 20, d: 424, y: 2.68, depth: .18, axis: 'z' as const, kind: 'road' as const };
     if (Math.abs(x - BRIDGE.x) > BRIDGE.w / 2) return [base];
     // x=80 is the city grid's easternmost north–south street, and it falls
-    // inside the bridge's x-span [68, 304]. This street used to run its
-    // full z-length straight through the bridge's z-band at full road
-    // height, with no clearance from the bridge deck/railings above it —
-    // visually the bridge appearing to block/cross the street the player is
-    // standing on. There's no case here for an over/underpass (the bridge
-    // ramp is right at the crossing point and there's no clearance to dig
-    // a passage under it), so the street is split into its north and south
-    // segments around the bridge's footprint instead of driving through it.
+    // inside the bridge's x-span [68, 304] — see the note above BRIDGE for
+    // why this single-height engine can't stack a real road under the deck
+    // at the same (x, z). Split the street into its north and south
+    // segments around the bridge's own footprint; both segments still meet
+    // the regular perpendicular streets (z=-160 and z=0) a short distance
+    // away, so this is a clean T-junction on the existing grid, not a dead
+    // end, and nothing here reads as the bridge "blocking" a road that's
+    // actually present at that point.
     const zMin = base.z - base.d / 2, zMax = base.z + base.d / 2;
     const gapMin = BRIDGE.z - BRIDGE.d / 2, gapMax = BRIDGE.z + BRIDGE.d / 2;
     return [
@@ -127,7 +146,12 @@ export function terrainHeight(x: number, z: number): number {
 }
 export function surfaceHeight(s: Surface, x: number, _z: number): number {
   if (s.kind !== 'bridge') return s.y;
-  return x < 94 ? lp(2.68, s.y, ss(68, 94, x)) : lp(s.y, 2.5, ss(278, 304, x));
+  // Ramp span widened (was 68→94 / 278→304, 26 units) so the bigger rise to
+  // the raised deck still reads as a gentle approach, not a steeper jump.
+  // Both ramps stay inside the deck's own [68, 304] footprint, so they still
+  // connect smoothly to the flat road grade at the bridge's outer edges with
+  // no floating/disconnected road surface.
+  return x < 106 ? lp(2.68, s.y, ss(68, 106, x)) : lp(s.y, 2.5, ss(266, 304, x));
 }
 export function isWater(x: number, z: number) { return terrainHeight(x, z) < WATER_LEVEL; }
 export function isLand(x: number, z: number) { return terrainHeight(x, z) >= WATER_LEVEL + WAVE_HEIGHT + .05; }
@@ -138,6 +162,20 @@ export function groundHeight(x: number, z: number): number {
   let h = terrainHeight(x, z);
   for (const s of SURFACES) if (contains(s, x, z)) h = Math.max(h, surfaceHeight(s, x, z));
   return h < WATER_LEVEL + WAVE_HEIGHT + .05 ? -2 : h;
+}
+// For a swimming player, not a boat hull. navigableWater's -.65 depth
+// margin is sized for a hull and leaves a shallow-water band a walking
+// player can't stand in (groundHeight goes impassable at WATER_LEVEL +
+// WAVE_HEIGHT + .05) but also isn't deep enough to satisfy navigableWater —
+// an invisible wall right at the shoreline. Use the same threshold
+// groundHeight already treats as "not walkable" so land and swimmable
+// water meet with no gap between them, and keep a shallower dock/pier
+// clearance than navigableWater since a person's profile is much smaller
+// than a boat's hull.
+export function swimmable(x: number, z: number) {
+  if (Math.abs(x) >= 650 || Math.abs(z) >= 600) return false;
+  if (terrainHeight(x, z) >= WATER_LEVEL + WAVE_HEIGHT + .05) return false;
+  return !SURFACES.some(s => contains(s, x, z) && surfaceHeight(s, x, z) - s.depth < WATER_LEVEL + 1.4);
 }
 export function navigableWater(x: number, z: number) {
   if (Math.abs(x) >= 650 || Math.abs(z) >= 600 || terrainHeight(x, z) > WATER_LEVEL - .65) return false;

@@ -62,7 +62,7 @@ export class Game {
   }
   private updateHUD(focus:T.Vector3){
     this.ui.time();const mode=this.activity.active?.kind;
-    document.querySelector('#mode-pill')!.textContent=mode?`${mode==='car'?'DRIVING':'ON THE WATER'} · ${Math.round(this.activity.speed)} KM/H`:'ON FOOT';
+    document.querySelector('#mode-pill')!.textContent=mode?`${mode==='car'?'DRIVING':'ON THE WATER'} · ${Math.round(this.activity.speed)} KM/H`:this.player.swimming?'SWIMMING':'ON FOOT';
     document.querySelector('#district-name')!.textContent=island(focus.x,focus.z)?'Paloma Island':focus.x>120?'Azure Bay':focus.z<0?'Downtown':'Marina waterfront';
     const nearby=this.activity.active||this.activity.nearest(this.player),hint=document.querySelector<HTMLElement>('#interaction')!;hint.hidden=!nearby||this.state!=='playing';if(nearby)hint.querySelector('span')!.textContent=this.activity.active?'Exit '+nearby.kind:'Enter '+nearby.kind;
     this.visited.forEach((v,i)=>document.getElementById(`cp-${i}`)!.classList.toggle('visited',v));if(this.visited.every(Boolean))document.querySelector('#objective')!.textContent='The coast is yours. Keep exploring.';

@@ -235,9 +235,14 @@ export class World {
         this.collision.add({ x: tx, z: tz, w: 4.4, d: 4.4, y: -4.5, h: 59 });
       }
       b.add('box', 'ivory', tx, 42, -80, 2, 2.2, 16);
-      // Stay cables — fanned from tower top
-      for (const side of [-1, 1]) for (let j = 1; j < 7; j++) for (const tz of [-88, -72])
-        b.beam('white', new T.Vector3(tx, 49 - j * .6, tz), new T.Vector3(tx + side * j * 5.5, 3.8, tz), .04);
+      // Stay cables — fanned from tower top down to the deck surface. The
+      // deck-side anchor tracks BRIDGE's actual (now raised) surface height
+      // instead of a stale hardcoded constant, so cables stay attached to
+      // the deck rather than floating above it after the bridge was raised.
+      for (const side of [-1, 1]) for (let j = 1; j < 7; j++) for (const tz of [-88, -72]) {
+        const ax = tx + side * j * 5.5;
+        b.beam('white', new T.Vector3(tx, 49 - j * .6, tz), new T.Vector3(ax, surfaceHeight(BRIDGE, ax, tz) + .3, tz), .04);
+      }
     }
     // Railings along both edges
     for (const tz of [-88, -72]) for (let x = 70; x < 302; x += 4) {
