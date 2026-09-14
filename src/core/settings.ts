@@ -23,7 +23,7 @@ export function validateSettings(data: unknown, mobile = false): Settings {
 }
 export function loadSettings(mobile: boolean) { try { return validateSettings(JSON.parse(localStorage.getItem('coastal-city.settings.v1') || 'null'), mobile); } catch { return defaults(mobile); } }
 export function saveSettings(settings: Settings) { try { localStorage.setItem('coastal-city.settings.v1', JSON.stringify(settings)); } catch { /* Private WebViews can deny storage; settings still work for the session. */ } }
-export function residencyRadius(mode: Culling, distance: number, auto: 'LOW' | 'MEDIUM' | 'HIGH') { return mode === 'OFF' ? Infinity : distance * ({ LOW: 1.35, MEDIUM: 1, HIGH: .7 }[mode === 'AUTO' ? auto : mode]); }
+export function residencyRadius(mode: Culling, _distance: number, auto: 'LOW' | 'MEDIUM' | 'HIGH') { return mode === 'OFF' ? Infinity : ({ LOW: 540, MEDIUM: 400, HIGH: 280 }[mode === 'AUTO' ? auto : mode]); }
 export function chooseLOD(distance: number, detail: number, previous = 2) {
   const margin = 12;
   if (distance < 105 * detail + (previous === 0 ? margin : -margin)) return 0;

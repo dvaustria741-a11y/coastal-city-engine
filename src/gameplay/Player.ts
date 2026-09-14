@@ -1,9 +1,9 @@
 import * as T from 'three/webgpu';
 import { makeHuman, animateHuman } from '../assets/models';
-import { groundHeight, type CollisionWorld } from '../world/queries';
+import { groundHeight, PLAYER_SPAWN, type CollisionWorld } from '../world/queries';
 import type { Input } from '../input/Input';
 export class Player {
-  model=makeHuman('ivory');position=new T.Vector3(101,2.5,92);velocityY=0;speed=0;private elapsed=0;
+  model=makeHuman('ivory');position=new T.Vector3(PLAYER_SPAWN.x,groundHeight(PLAYER_SPAWN.x,PLAYER_SPAWN.z),PLAYER_SPAWN.z);velocityY=0;speed=0;private elapsed=0;
   constructor(scene:T.Scene,private collision:CollisionWorld){this.model.position.copy(this.position);scene.add(this.model);}
   update(dt:number,input:Input,yaw:number){
     this.elapsed+=dt;const x=input.horizontal,z=input.vertical;const length=Math.max(1,Math.hypot(x,z));const speed=input.sprint?10:5.2;this.speed=Math.hypot(x,z)*speed;
@@ -14,7 +14,7 @@ export class Player {
     if(this.speed>.1){const target=Math.atan2(-dx,-dz);this.model.rotation.y+=Math.atan2(Math.sin(target-this.model.rotation.y),Math.cos(target-this.model.rotation.y))*Math.min(1,dt*12);}
     this.model.position.copy(this.position);animateHuman(this.model,this.elapsed,this.speed/5);
   }
-  respawn(){this.position.set(101,2.5,92);this.velocityY=0;this.model.position.copy(this.position);}
+  respawn(){this.position.set(PLAYER_SPAWN.x,groundHeight(PLAYER_SPAWN.x,PLAYER_SPAWN.z),PLAYER_SPAWN.z);this.velocityY=0;this.model.position.copy(this.position);}
 }
 export class FollowCamera {
   yaw=.3;pitch=.28;distance=9;private ray=new T.Ray();

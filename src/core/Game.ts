@@ -31,7 +31,7 @@ export class Game {
       this.camera.position.set(390,224,335);this.camera.lookAt(-15,35,-40);this.environment.update(.3,this.camera,this.settings,new T.Vector3(0,0,0));this.activity.update(0,this.settings,this.player.position,this.camera);this.player.model.visible=false;
       this.ui.progress(.87,'Finding the light');await this.renderer.renderer.compileAsync(this.scene,this.camera);this.renderer.renderer.render(this.scene,this.camera);
       this.ui.progress(1,'The coast is yours');this.ui.ready();this.last=performance.now();this.renderer.renderer.setAnimationLoop(time=>this.frame(time));
-      (window as Window & {coastal?:unknown}).coastal={snapshot:()=>this.snapshot()};
+      (window as Window & {coastal?:unknown}).coastal={snapshot:()=>this.snapshot(),...(import.meta.env.DEV&&new URLSearchParams(location.search).has('audit')?{game:this}:{})};
     }catch(error){console.error('Coastal City initialization:',error);this.ui.failure(error instanceof Error?error.message:'WebGPU or WebGL2 is required. Update your browser or Android System WebView.');}
   }
   play(){if(!this.input)return;this.state='playing';this.ui.playing(true);this.input.enabled=true;this.player.model.visible=!this.activity.active;this.follow.camera.position.copy(this.player.position).add(new T.Vector3(5,5,9));this.ui.notify('Welcome to the coast. Walk toward the marina, or take the coral car for a spin.');}
@@ -76,7 +76,7 @@ export class Game {
     for(const x of [-240,-160,-80,0,80]){ctx.beginPath();ctx.moveTo(x,-250);ctx.lineTo(x,170);ctx.stroke();}for(const z of [-240,-160,-80,0,80,160]){ctx.beginPath();ctx.moveTo(-250,z);ctx.lineTo(z===-80?282:88,z);ctx.stroke();}
     ctx.strokeStyle='#c19f74';ctx.beginPath();ctx.moveTo(115,108);ctx.lineTo(166,108);ctx.stroke();
     ctx.fillStyle='#254e55';this.world.chunks.forEach(c=>c.buildings.forEach(b=>ctx.fillRect(b.x-b.w/2,b.z-b.d/2,b.w,b.d)));
-    for(const [x,z] of [[80,103],[143,119]]){ctx.fillStyle='#ffcc85';ctx.beginPath();ctx.arc(x,z,5,0,Math.PI*2);ctx.fill();}ctx.restore();ctx.save();ctx.translate(140,140);ctx.rotate(-this.follow.yaw);ctx.fillStyle='#fff';ctx.beginPath();ctx.moveTo(0,-9);ctx.lineTo(6,6);ctx.lineTo(0,3);ctx.lineTo(-6,6);ctx.closePath();ctx.fill();ctx.restore();
+    for(const {position:{x,z}} of [this.activity.car,this.activity.boat]){ctx.fillStyle='#ffcc85';ctx.beginPath();ctx.arc(x,z,5,0,Math.PI*2);ctx.fill();}ctx.restore();ctx.save();ctx.translate(140,140);ctx.rotate(-this.follow.yaw);ctx.fillStyle='#fff';ctx.beginPath();ctx.moveTo(0,-9);ctx.lineTo(6,6);ctx.lineTo(0,3);ctx.lineTo(-6,6);ctx.closePath();ctx.fill();ctx.restore();
   }
   snapshot(){return {state:this.state,backend:this.renderer.backend,position:(this.activity.position||this.player.position).toArray(),mode:this.activity.active?.kind||'foot',visited:[...this.visited],settings:{...this.settings},fps:Math.round(1000/this.frameMs),resident:this.chunks.resident,detailed:this.chunks.detailed,sunVisible:this.environment.sun.visible,moonVisible:this.environment.moon.visible,wetness:this.environment.wetness};}
 }

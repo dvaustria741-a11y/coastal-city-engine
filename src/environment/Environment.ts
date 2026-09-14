@@ -1,6 +1,7 @@
 import * as T from 'three/webgpu';
 import { positionLocal, positionWorld, sin, vec3, uniform, mix, color } from 'three/tsl';
 import { materials } from '../assets/models';
+import { WATER_LEVEL } from '../world/queries';
 import { presets, seeded, solarAltitude, type Settings } from '../core/settings';
 export class Environment {
   skyRoot=new T.Group();sunLight=new T.DirectionalLight('#fff1cb',3);ambient=new T.HemisphereLight('#b5dce8','#707961',2);
@@ -19,7 +20,7 @@ export class Environment {
     const wave=sin(positionLocal.x.mul(.09).add(this.waterTime.mul(.8))).mul(.18).add(sin(positionLocal.y.mul(.14).sub(this.waterTime)).mul(.12));
     wm.positionNode=positionLocal.add(vec3(0,0,wave));
     wm.colorNode=mix(color('#197e8a'),color('#66c9bd'),sin(positionWorld.x.mul(.09).add(positionWorld.z.mul(.13)).add(this.waterTime)).mul(.16).add(.42));
-    this.water=new T.Mesh(new T.PlaneGeometry(6000,6000,96,96),wm);this.water.rotation.x=-Math.PI/2;this.water.position.y=.2;this.water.receiveShadow=true;scene.add(this.water);
+    this.water=new T.Mesh(new T.PlaneGeometry(6000,6000,96,96),wm);this.water.rotation.x=-Math.PI/2;this.water.position.y=WATER_LEVEL;this.water.receiveShadow=true;scene.add(this.water);
     const canvas=document.createElement('canvas');canvas.width=256;canvas.height=128;const ctx=canvas.getContext('2d')!;const gr=ctx.createLinearGradient(0,0,0,128);gr.addColorStop(0,'#4192c1');gr.addColorStop(.45,'#d7e8df');gr.addColorStop(.52,'#b7c6b0');gr.addColorStop(1,'#526956');ctx.fillStyle=gr;ctx.fillRect(0,0,256,128);ctx.fillStyle='#fff1c8';ctx.fillRect(177,31,14,23);this.reflection=new T.CanvasTexture(canvas);this.reflection.mapping=T.EquirectangularReflectionMapping;scene.environment=this.reflection;scene.environmentIntensity=.65;
     const random=seeded(99),dummy=new T.Object3D();this.clouds=new T.InstancedMesh(new T.SphereGeometry(1,12,8),this.cloudMaterial,96);
     for(let i=0;i<96;i++){const a=Math.floor(i/4)*2.4;dummy.position.set(Math.sin(a)*950+(i%4)*35,200+random()*75,Math.cos(a)*950);dummy.scale.set(75+random()*40,12+random()*16,35);dummy.rotation.z=random()*.15;dummy.updateMatrix();this.clouds.setMatrixAt(i,dummy.matrix);}this.clouds.frustumCulled=false;this.clouds.renderOrder=-97;this.skyRoot.add(this.clouds);
