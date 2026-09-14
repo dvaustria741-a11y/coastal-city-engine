@@ -19,32 +19,11 @@ export interface Surface extends Footprint {
   depth: number;
   axis?: 'x' | 'z';
 }
-export const BRIDGE: Surface = { x: 186, z: -80, w: 236, d: 17, y: 3.48, depth: .65, kind: 'bridge', axis: 'x' };
-const BRIDGE_WEST = BRIDGE.x - BRIDGE.w / 2, BRIDGE_Z_LO = BRIDGE.z - BRIDGE.d / 2, BRIDGE_Z_HI = BRIDGE.z + BRIDGE.d / 2;
-// Two arterials would otherwise share the bridge's footprint as a second,
-// competing deck instead of handing off to it:
-//  - the z=-80 street IS the bridge's own western approach, so its flat deck
-//    must stop exactly at the bridge's edge and let the ramp take over, or
-//    the two decks render on top of each other through the whole on-ramp.
-//  - x=80 runs perpendicular and merely crosses the bridge's footprint; its
-//    ramp there is still too low for a real underpass, so the arterial is
-//    split around the crossing instead of interpenetrating the deck above it.
 export const ROADS: Surface[] = [
-  ...ROAD_XS.flatMap(x => {
-    const road = { x, z: -40, w: 20, d: 424, y: 2.68, depth: .18, axis: 'z' as const, kind: 'road' as const };
-    if (Math.abs(x - BRIDGE.x) > BRIDGE.w / 2) return [road];
-    return [
-      { ...road, z: (BRIDGE_Z_HI + 172) / 2, d: 172 - BRIDGE_Z_HI },
-      { ...road, z: (-252 + BRIDGE_Z_LO) / 2, d: BRIDGE_Z_LO + 252 },
-    ];
-  }),
-  ...ROAD_ZS.map(z => {
-    const road = { x: -78, z, w: 344, d: 20, y: 2.68, depth: .18, axis: 'x' as const, kind: 'road' as const };
-    if (z !== BRIDGE.z) return road;
-    const w = BRIDGE_WEST - (road.x - road.w / 2);
-    return { ...road, w, x: (road.x - road.w / 2) + w / 2 };
-  }),
+  ...ROAD_XS.map(x => ({ x, z: -40, w: 20, d: 424, y: 2.68, depth: .18, axis: 'z' as const, kind: 'road' as const })),
+  ...ROAD_ZS.map(z => ({ x: -78, z, w: 344, d: 20, y: 2.68, depth: .18, axis: 'x' as const, kind: 'road' as const })),
 ];
+export const BRIDGE: Surface = { x: 186, z: -80, w: 236, d: 17, y: 3.48, depth: .65, kind: 'bridge', axis: 'x' };
 export const DOCKS: Surface[] = [
   { x: 135, z: 108, w: 66, d: 5.8, y: 2.5, depth: .55, kind: 'dock' },
   { x: 150.5, z: 114.5, w: 5, d: 41, y: 2.5, depth: .55, kind: 'dock' },
@@ -124,10 +103,6 @@ export function isLand(x: number, z: number) { return terrainHeight(x, z) >= WAT
 export function isBeach(x: number, z: number) { return isLand(x, z) && edgeSDF(x, z) < 18; }
 
 // Navigation ground height. Returns <0 for impassable water.
-// Surfaces are graded so higher always means "the deck actually above",
-// never two decks disputing the same footprint — ROADS routes the one real
-// bridge approach around the deck itself (see ROADS), so nothing left
-// sharing the bridge's rectangle is a false merge.
 export function groundHeight(x: number, z: number): number {
   let h = terrainHeight(x, z);
   for (const s of SURFACES) if (contains(s, x, z)) h = Math.max(h, surfaceHeight(s, x, z));
